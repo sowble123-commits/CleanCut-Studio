@@ -47,7 +47,8 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
         
         ctk.CTkLabel(tool_row, text="브러쉬 두께", font=FONT_DEFAULT_BOLD, text_color=TEXT_MAIN).pack(side="left", padx=(0, 12))
         self.brush_size_var = tk.IntVar(value=20)
-        self.slider_brush = ctk.CTkSlider(tool_row, from_=5, to=60, width=150, button_color=ACCENT, progress_color=ACCENT, variable=self.brush_size_var)
+        
+        self.slider_brush = ctk.CTkSlider(tool_row, from_=5, to=300, width=200, button_color=ACCENT, progress_color=ACCENT, variable=self.brush_size_var, command=self.update_brush_size)
         self.slider_brush.pack(side="left")
 
         act_row = ctk.CTkFrame(top_bar, fg_color="transparent")
@@ -69,7 +70,7 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
         self.btn_view_orig.pack(side="left")
         self.btn_view_orig.configure(state="disabled")
         
-        ctk.CTkLabel(zoom_bar, text="Spacebar+드래그: 화면 이동", font=FONT_SMALL, text_color=TEXT_SUB).pack(side="left", padx=16)
+        ctk.CTkLabel(zoom_bar, text="Ctrl+휠: 브러쉬 크기 | Spacebar+드래그: 화면 이동", font=FONT_SMALL, text_color=TEXT_SUB).pack(side="left", padx=16)
         
         ctk.CTkButton(zoom_bar, text="1:1", width=44, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, text_color=TEXT_MAIN, hover_color=BG_INNER, font=FONT_SMALL_BOLD, command=lambda: self.canvas.zoom_1to1()).pack(side="right", padx=2)
         ctk.CTkButton(zoom_bar, text="맞춤", width=44, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, text_color=TEXT_MAIN, hover_color=BG_INNER, font=FONT_SMALL_BOLD, command=lambda: self.canvas.fit_to_screen()).pack(side="right", padx=2)
@@ -80,11 +81,13 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
         self.canvas = InteractiveImageCanvas(body, bg_color=bg_col, draw_mode=True)
         self.canvas.pack(fill="both", expand=True)
         self.canvas.on_draw_cb = self.on_canvas_draw 
+        
+        self.canvas.bind("<Control-MouseWheel>", self.on_ctrl_mousewheel)
 
         self.after(100, lambda: self.canvas.fit_to_screen())
 
         bot_bar = ctk.CTkFrame(self, fg_color="transparent")
-        bot_bar.pack(fill="x", pady=18)
+        bot_bar.pack(fill="x", padx=22, pady=18)
         
         self.btn_run = ctk.CTkButton(bot_bar, text="✨ 칠한 영역 지우기 시작", height=48, corner_radius=10, font=FONT_MAIN_TITLE, fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color="#FFFFFF", command=self.run_eraser)
         self.btn_run.pack(side="left", fill="x", expand=True, padx=(0, 6))
@@ -92,6 +95,18 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
         self.btn_save = ctk.CTkButton(bot_bar, text="결과물 저장하기", width=160, height=48, corner_radius=10, font=FONT_CARD_TITLE, fg_color="#262936", hover_color="#323646", command=self.save_result)
         self.btn_save.pack(side="right", padx=(6, 0))
         self.btn_save.configure(state="disabled")
+
+    def on_ctrl_mousewheel(self, event):
+        delta = 5 if event.delta > 0 else -5
+        new_val = max(5, min(300, self.brush_size_var.get() + delta))
+        self.brush_size_var.set(new_val)
+        self.update_brush_size(new_val)
+        # 수정됨: Ctrl 휠 조작 시, 줌(Zoom) 기능이 동시에 실행되는 충돌을 막기 위해 이벤트 전파 중단
+        return "break"
+
+    def update_brush_size(self, value):
+        self.canvas.brush_size = int(float(value))
+        self.canvas.draw_brush_cursor(self.canvas.last_mouse_x, self.canvas.last_mouse_y)
 
     def on_view_change(self, mode):
         self.canvas.set_view_mode(mode)
@@ -138,7 +153,7 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
                     self.after(0, lambda: self.floating_prog.update_state(1, 1, ratio))
 
                 res_pil = engine_eraser.process_eraser_to_memory(
-                    image_path=self.current_image_path, mask_image=self.mask_image, progress_callback=step_cb
+                    image_input=self.original_image, mask_image=self.mask_image, progress_callback=step_cb
                 )
                 self.after(0, lambda: self.on_process_complete(res_pil))
             except Exception as e:
@@ -149,15 +164,16 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
     def on_process_complete(self, result_pil):
         self.is_processing = False
         self.result_image = result_pil
+        self.original_image = result_pil 
+        
         self.floating_prog.stop()
         self.btn_run.configure(state="normal", text="✨ 칠한 영역 지우기 시작")
         self.btn_save.configure(state="normal", fg_color=ACCENT, hover_color=ACCENT_HOVER)
         
-        self.canvas.set_comparison(self.original_image, self.result_image, mode="toggle_res")
+        self.canvas.set_image(self.original_image)
         
-        self.btn_view_res.configure(state="normal")
-        self.btn_view_orig.configure(state="normal")
-        self.on_view_change("toggle_res")
+        self.btn_view_res.configure(state="disabled", fg_color="transparent", text_color=TEXT_MAIN, border_width=1, border_color=BORDER_COLOR)
+        self.btn_view_orig.configure(state="disabled", fg_color="transparent", text_color=TEXT_MAIN, border_width=1, border_color=BORDER_COLOR)
         
         self.canvas.clear_lines()
         w, h = self.original_image.size
@@ -183,6 +199,7 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
         
         messagebox.showinfo("저장 완료", f"이미지가 복원되어 저장되었습니다!\n\n경로:\n{saved_files[0]}", parent=self)
         if self.app.settings.get("auto_open_folder", True) and out_dir: os.startfile(out_dir)
+
 
 class TabEraser(ctk.CTkFrame):
     def __init__(self, master, app):

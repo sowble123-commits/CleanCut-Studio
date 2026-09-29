@@ -227,6 +227,7 @@ class FloatingProgressWidget:
         self.popup.place_forget()
         self.capsule.place_forget()
 
+
 class InteractiveImageCanvas(tk.Canvas):
     def __init__(self, master, bg_color, draw_mode=False, **kwargs):
         super().__init__(master, bg=bg_color, highlightthickness=0, **kwargs)
@@ -251,7 +252,9 @@ class InteractiveImageCanvas(tk.Canvas):
         self.is_drawing = False
         self.is_space_pressed = False
         
-        self.lines = []  # 화면 이동 시에도 브러쉬를 기억하기 위한 배열
+        self.lines = []
+        self.last_mouse_x = 0
+        self.last_mouse_y = 0
         
         self.bind("<MouseWheel>", self.on_mousewheel)
         self.bind("<ButtonPress-2>", self.start_pan_b2)
@@ -261,6 +264,9 @@ class InteractiveImageCanvas(tk.Canvas):
         self.bind("<ButtonPress-1>", self.on_b1_press)
         self.bind("<B1-Motion>", self.on_b1_motion)
         self.bind("<ButtonRelease-1>", self.on_b1_release)
+        
+        self.bind("<Motion>", self.on_mouse_motion)
+        self.bind("<Leave>", self.on_mouse_leave)
 
         self.bind("<Enter>", lambda e: self.focus_set())
         self.bind("<KeyPress-space>", self.on_space_press)
@@ -269,7 +275,6 @@ class InteractiveImageCanvas(tk.Canvas):
         self.set_pan_mode(False)
 
     def clear_lines(self):
-        """브러쉬 라인 초기화 (줌/이동 상태는 유지됨)"""
         self.lines.clear()
         self.delete("paint")
 
@@ -296,8 +301,31 @@ class InteractiveImageCanvas(tk.Canvas):
         self.pan_mode = is_pan
         if is_pan:
             self.config(cursor="fleur")
+            self.hide_brush_cursor()
         else:
-            self.config(cursor="crosshair" if self.draw_mode else "arrow")
+            self.config(cursor="none" if self.draw_mode else "arrow")
+            if self.draw_mode:
+                self.draw_brush_cursor(self.last_mouse_x, self.last_mouse_y)
+
+    def draw_brush_cursor(self, x, y):
+        self.delete("brush_cursor")
+        if not self.draw_mode or self.pan_mode: return
+        r = (self.brush_size * self.scale) / 2
+        self.create_oval(x-r, y-r, x+r, y+r, outline="#EF4444", width=2, tags="brush_cursor")
+
+    def hide_brush_cursor(self):
+        self.delete("brush_cursor")
+
+    def on_mouse_leave(self, event):
+        self.hide_brush_cursor()
+        self.is_sliding = False
+        self.is_drawing = False
+        self.last_draw_x, self.last_draw_y = None, None
+
+    def on_mouse_motion(self, event):
+        self.last_mouse_x, self.last_mouse_y = event.x, event.y
+        if self.draw_mode and not self.pan_mode:
+            self.draw_brush_cursor(event.x, event.y)
 
     def on_space_press(self, event):
         if not self.is_space_pressed:
@@ -326,6 +354,10 @@ class InteractiveImageCanvas(tk.Canvas):
             self.last_draw_cx, self.last_draw_cy = event.x, event.y
 
     def on_b1_motion(self, event):
+        self.last_mouse_x, self.last_mouse_y = event.x, event.y
+        if self.draw_mode and not self.pan_mode:
+            self.draw_brush_cursor(event.x, event.y)
+
         if self.is_sliding:
             cw = self.winfo_width()
             if cw > 0:
@@ -337,6 +369,7 @@ class InteractiveImageCanvas(tk.Canvas):
             self.do_pan_b2(event)
             return
             
+        # 수정됨: 마우스 왼쪽 버튼을 누르지 않은 상태라면(is_drawing이 False) 절대 선이 그려지지 않도록 확실하게 차단
         if self.draw_mode and self.is_drawing:
             ix, iy = self.get_img_coords(event.x, event.y)
             r = (self.brush_size * self.scale) / 2
@@ -344,7 +377,6 @@ class InteractiveImageCanvas(tk.Canvas):
             self.create_line(self.last_draw_cx, self.last_draw_cy, event.x, event.y, 
                              width=r*2, fill=self.brush_color, capstyle=tk.ROUND, smooth=True, tags="paint")
             
-            # 브러쉬 궤적을 이미지 내부 좌표계로 저장
             self.lines.append((self.last_draw_x, self.last_draw_y, ix, iy, self.brush_size, self.brush_color))
             
             if self.on_draw_cb:
@@ -354,6 +386,7 @@ class InteractiveImageCanvas(tk.Canvas):
             self.last_draw_cx, self.last_draw_cy = event.x, event.y
 
     def on_b1_release(self, event):
+        # 수정됨: 마우스 버튼을 떼는 순간 드래그 상태를 확실하게 해제하여 선이 끌려다니는 버그 원천 차단
         self.is_sliding = False
         self.is_drawing = False
         self.last_draw_x, self.last_draw_y = None, None
@@ -397,6 +430,8 @@ class InteractiveImageCanvas(tk.Canvas):
         self.offset_y = cy - (cy - self.offset_y) * (new_scale / self.scale)
         self.scale = new_scale
         self.redraw()
+        if self.draw_mode:
+            self.draw_brush_cursor(self.last_mouse_x, self.last_mouse_y)
 
     def zoom_in(self): self.zoom(1.2)
     def zoom_out(self): self.zoom(0.8)
@@ -408,6 +443,8 @@ class InteractiveImageCanvas(tk.Canvas):
         self.offset_x = (self.winfo_width() - active_img.size[0]) / 2
         self.offset_y = (self.winfo_height() - active_img.size[1]) / 2
         self.redraw()
+        if self.draw_mode:
+            self.draw_brush_cursor(self.last_mouse_x, self.last_mouse_y)
 
     def on_mousewheel(self, event):
         factor = 1.1 if event.delta > 0 else 0.9
@@ -417,7 +454,6 @@ class InteractiveImageCanvas(tk.Canvas):
         return (cx - self.offset_x) / self.scale, (cy - self.offset_y) / self.scale
 
     def redraw(self):
-        # 이동/줌 시 기존 이미지 라인 완벽히 지우기
         self.delete("img", "slider", "paint")
         if not self.orig_img: return
         
@@ -442,7 +478,6 @@ class InteractiveImageCanvas(tk.Canvas):
         if new_w <= 0 or new_h <= 0: return
         
         resample = Image.Resampling.NEAREST if self.scale >= 1.0 else Image.Resampling.LANCZOS
-        # 소수점 좌표계로 인한 에러 방지용 강제 int 변환
         draw_x, draw_y = int(max(0, self.offset_x)), int(max(0, self.offset_y))
         
         if self.view_mode != "split" or not self.res_img:
@@ -458,7 +493,6 @@ class InteractiveImageCanvas(tk.Canvas):
             r_res = c_res.resize((new_w, new_h), resample)
             
             split_x_canvas = int(cw * self.split_ratio)
-            # 소수점 에러 방지용 int 처리
             split_x_img = int(split_x_canvas - draw_x)
             
             if split_x_img <= 0:
@@ -483,7 +517,6 @@ class InteractiveImageCanvas(tk.Canvas):
             
         self.tag_lower("img")
         
-        # 이미지 재렌더링 후 화면에 기록된 브러쉬도 스케일에 맞게 다시 그려주기
         if self.draw_mode:
             for line in self.lines:
                 x1 = line[0] * self.scale + self.offset_x
@@ -492,3 +525,5 @@ class InteractiveImageCanvas(tk.Canvas):
                 y2 = line[3] * self.scale + self.offset_y
                 r = (line[4] * self.scale) / 2
                 self.create_line(x1, y1, x2, y2, width=r*2, fill=line[5], capstyle=tk.ROUND, smooth=True, tags="paint")
+            
+            self.tag_raise("brush_cursor")

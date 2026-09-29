@@ -1,5 +1,5 @@
 === CleanCut Studio Pro - AI 인수인계 마스터 문서 ===
-생성 일시: 2026-09-30 01:59:37
+생성 일시: 2026-09-30 03:35:18
 
 === [1] 현재 프로젝트 파일 구조 ===
     📄 .gitignore
@@ -278,8 +278,8 @@ def get_unique_filepath(out_dir, base_name, suffix, ext):
             return full_path
         counter += 1
 
-def process_eraser_to_memory(image_path, mask_image, progress_callback=None):
-    """원본 이미지와 마스크 이미지를 받아 지우개(Inpainting) 처리를 수행합니다."""
+def process_eraser_to_memory(image_input, mask_image, progress_callback=None):
+    """원본 이미지(경로 또는 PIL 객체)와 마스크 이미지를 받아 지우개(Inpainting) 처리를 수행합니다."""
     def report(msg, ratio):
         if progress_callback:
             progress_callback(msg, ratio)
@@ -291,8 +291,13 @@ def process_eraser_to_memory(image_path, mask_image, progress_callback=None):
         raise RuntimeError("OpenCV가 설치되어 있지 않습니다.\npip install opencv-python 명령어를 실행해주세요.")
 
     report("이미지 및 마스크 분석 중...", 0.3)
-    # PIL 이미지를 OpenCV용 BGR 배열로 변환
-    original = Image.open(image_path).convert("RGB")
+    
+    # 파일 경로(문자열)로 들어오면 열고, 이미 메모리에 있는 PIL 객체면 그대로 사용 (누적 지우기 지원)
+    if isinstance(image_input, str):
+        original = Image.open(image_input).convert("RGB")
+    else:
+        original = image_input.convert("RGB")
+        
     img_array = np.array(original)
     img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
 
@@ -300,8 +305,8 @@ def process_eraser_to_memory(image_path, mask_image, progress_callback=None):
     mask_array = np.array(mask_image.convert("L"))
 
     report("주변 배경 픽셀 기반 복원 연산 중...", 0.6)
-    # cv2.INPAINT_TELEA 알고리즘을 사용하여 마스크 영역 복원
-    result_bgr = cv2.inpaint(img_bgr, mask_array, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
+    # 기존 TELEA보다 조금 더 부드러운 NS(Navier-Stokes) 알고리즘 사용 및 픽셀 참조 반경 확대
+    result_bgr = cv2.inpaint(img_bgr, mask_array, inpaintRadius=10, flags=cv2.INPAINT_NS)
 
     report("결과물 변환 중...", 0.9)
     # 다시 BGR에서 RGB를 거쳐 PIL 이미지로 변환
@@ -891,6 +896,7 @@ class FloatingProgressWidget:
         self.popup.place_forget()
         self.capsule.place_forget()
 
+
 class InteractiveImageCanvas(tk.Canvas):
     def __init__(self, master, bg_color, draw_mode=False, **kwargs):
         super().__init__(master, bg=bg_color, highlightthickness=0, **kwargs)
@@ -915,7 +921,9 @@ class InteractiveImageCanvas(tk.Canvas):
         self.is_drawing = False
         self.is_space_pressed = False
         
-        self.lines = []  # 화면 이동 시에도 브러쉬를 기억하기 위한 배열
+        self.lines = []
+        self.last_mouse_x = 0
+        self.last_mouse_y = 0
         
         self.bind("<MouseWheel>", self.on_mousewheel)
         self.bind("<ButtonPress-2>", self.start_pan_b2)
@@ -925,6 +933,9 @@ class InteractiveImageCanvas(tk.Canvas):
         self.bind("<ButtonPress-1>", self.on_b1_press)
         self.bind("<B1-Motion>", self.on_b1_motion)
         self.bind("<ButtonRelease-1>", self.on_b1_release)
+        
+        self.bind("<Motion>", self.on_mouse_motion)
+        self.bind("<Leave>", self.on_mouse_leave)
 
         self.bind("<Enter>", lambda e: self.focus_set())
         self.bind("<KeyPress-space>", self.on_space_press)
@@ -933,7 +944,6 @@ class InteractiveImageCanvas(tk.Canvas):
         self.set_pan_mode(False)
 
     def clear_lines(self):
-        """브러쉬 라인 초기화 (줌/이동 상태는 유지됨)"""
         self.lines.clear()
         self.delete("paint")
 
@@ -960,8 +970,31 @@ class InteractiveImageCanvas(tk.Canvas):
         self.pan_mode = is_pan
         if is_pan:
             self.config(cursor="fleur")
+            self.hide_brush_cursor()
         else:
-            self.config(cursor="crosshair" if self.draw_mode else "arrow")
+            self.config(cursor="none" if self.draw_mode else "arrow")
+            if self.draw_mode:
+                self.draw_brush_cursor(self.last_mouse_x, self.last_mouse_y)
+
+    def draw_brush_cursor(self, x, y):
+        self.delete("brush_cursor")
+        if not self.draw_mode or self.pan_mode: return
+        r = (self.brush_size * self.scale) / 2
+        self.create_oval(x-r, y-r, x+r, y+r, outline="#EF4444", width=2, tags="brush_cursor")
+
+    def hide_brush_cursor(self):
+        self.delete("brush_cursor")
+
+    def on_mouse_leave(self, event):
+        self.hide_brush_cursor()
+        self.is_sliding = False
+        self.is_drawing = False
+        self.last_draw_x, self.last_draw_y = None, None
+
+    def on_mouse_motion(self, event):
+        self.last_mouse_x, self.last_mouse_y = event.x, event.y
+        if self.draw_mode and not self.pan_mode:
+            self.draw_brush_cursor(event.x, event.y)
 
     def on_space_press(self, event):
         if not self.is_space_pressed:
@@ -990,6 +1023,10 @@ class InteractiveImageCanvas(tk.Canvas):
             self.last_draw_cx, self.last_draw_cy = event.x, event.y
 
     def on_b1_motion(self, event):
+        self.last_mouse_x, self.last_mouse_y = event.x, event.y
+        if self.draw_mode and not self.pan_mode:
+            self.draw_brush_cursor(event.x, event.y)
+
         if self.is_sliding:
             cw = self.winfo_width()
             if cw > 0:
@@ -1001,6 +1038,7 @@ class InteractiveImageCanvas(tk.Canvas):
             self.do_pan_b2(event)
             return
             
+        # 수정됨: 마우스 왼쪽 버튼을 누르지 않은 상태라면(is_drawing이 False) 절대 선이 그려지지 않도록 확실하게 차단
         if self.draw_mode and self.is_drawing:
             ix, iy = self.get_img_coords(event.x, event.y)
             r = (self.brush_size * self.scale) / 2
@@ -1008,7 +1046,6 @@ class InteractiveImageCanvas(tk.Canvas):
             self.create_line(self.last_draw_cx, self.last_draw_cy, event.x, event.y, 
                              width=r*2, fill=self.brush_color, capstyle=tk.ROUND, smooth=True, tags="paint")
             
-            # 브러쉬 궤적을 이미지 내부 좌표계로 저장
             self.lines.append((self.last_draw_x, self.last_draw_y, ix, iy, self.brush_size, self.brush_color))
             
             if self.on_draw_cb:
@@ -1018,6 +1055,7 @@ class InteractiveImageCanvas(tk.Canvas):
             self.last_draw_cx, self.last_draw_cy = event.x, event.y
 
     def on_b1_release(self, event):
+        # 수정됨: 마우스 버튼을 떼는 순간 드래그 상태를 확실하게 해제하여 선이 끌려다니는 버그 원천 차단
         self.is_sliding = False
         self.is_drawing = False
         self.last_draw_x, self.last_draw_y = None, None
@@ -1061,6 +1099,8 @@ class InteractiveImageCanvas(tk.Canvas):
         self.offset_y = cy - (cy - self.offset_y) * (new_scale / self.scale)
         self.scale = new_scale
         self.redraw()
+        if self.draw_mode:
+            self.draw_brush_cursor(self.last_mouse_x, self.last_mouse_y)
 
     def zoom_in(self): self.zoom(1.2)
     def zoom_out(self): self.zoom(0.8)
@@ -1072,6 +1112,8 @@ class InteractiveImageCanvas(tk.Canvas):
         self.offset_x = (self.winfo_width() - active_img.size[0]) / 2
         self.offset_y = (self.winfo_height() - active_img.size[1]) / 2
         self.redraw()
+        if self.draw_mode:
+            self.draw_brush_cursor(self.last_mouse_x, self.last_mouse_y)
 
     def on_mousewheel(self, event):
         factor = 1.1 if event.delta > 0 else 0.9
@@ -1081,7 +1123,6 @@ class InteractiveImageCanvas(tk.Canvas):
         return (cx - self.offset_x) / self.scale, (cy - self.offset_y) / self.scale
 
     def redraw(self):
-        # 이동/줌 시 기존 이미지 라인 완벽히 지우기
         self.delete("img", "slider", "paint")
         if not self.orig_img: return
         
@@ -1106,7 +1147,6 @@ class InteractiveImageCanvas(tk.Canvas):
         if new_w <= 0 or new_h <= 0: return
         
         resample = Image.Resampling.NEAREST if self.scale >= 1.0 else Image.Resampling.LANCZOS
-        # 소수점 좌표계로 인한 에러 방지용 강제 int 변환
         draw_x, draw_y = int(max(0, self.offset_x)), int(max(0, self.offset_y))
         
         if self.view_mode != "split" or not self.res_img:
@@ -1122,7 +1162,6 @@ class InteractiveImageCanvas(tk.Canvas):
             r_res = c_res.resize((new_w, new_h), resample)
             
             split_x_canvas = int(cw * self.split_ratio)
-            # 소수점 에러 방지용 int 처리
             split_x_img = int(split_x_canvas - draw_x)
             
             if split_x_img <= 0:
@@ -1147,7 +1186,6 @@ class InteractiveImageCanvas(tk.Canvas):
             
         self.tag_lower("img")
         
-        # 이미지 재렌더링 후 화면에 기록된 브러쉬도 스케일에 맞게 다시 그려주기
         if self.draw_mode:
             for line in self.lines:
                 x1 = line[0] * self.scale + self.offset_x
@@ -1156,6 +1194,8 @@ class InteractiveImageCanvas(tk.Canvas):
                 y2 = line[3] * self.scale + self.offset_y
                 r = (line[4] * self.scale) / 2
                 self.create_line(x1, y1, x2, y2, width=r*2, fill=line[5], capstyle=tk.ROUND, smooth=True, tags="paint")
+            
+            self.tag_raise("brush_cursor")
 
 ============================================================
 📁 FILE: ui_tab_bg.py
@@ -2300,7 +2340,8 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
         
         ctk.CTkLabel(tool_row, text="브러쉬 두께", font=FONT_DEFAULT_BOLD, text_color=TEXT_MAIN).pack(side="left", padx=(0, 12))
         self.brush_size_var = tk.IntVar(value=20)
-        self.slider_brush = ctk.CTkSlider(tool_row, from_=5, to=60, width=150, button_color=ACCENT, progress_color=ACCENT, variable=self.brush_size_var)
+        
+        self.slider_brush = ctk.CTkSlider(tool_row, from_=5, to=300, width=200, button_color=ACCENT, progress_color=ACCENT, variable=self.brush_size_var, command=self.update_brush_size)
         self.slider_brush.pack(side="left")
 
         act_row = ctk.CTkFrame(top_bar, fg_color="transparent")
@@ -2322,7 +2363,7 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
         self.btn_view_orig.pack(side="left")
         self.btn_view_orig.configure(state="disabled")
         
-        ctk.CTkLabel(zoom_bar, text="Spacebar+드래그: 화면 이동", font=FONT_SMALL, text_color=TEXT_SUB).pack(side="left", padx=16)
+        ctk.CTkLabel(zoom_bar, text="Ctrl+휠: 브러쉬 크기 | Spacebar+드래그: 화면 이동", font=FONT_SMALL, text_color=TEXT_SUB).pack(side="left", padx=16)
         
         ctk.CTkButton(zoom_bar, text="1:1", width=44, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, text_color=TEXT_MAIN, hover_color=BG_INNER, font=FONT_SMALL_BOLD, command=lambda: self.canvas.zoom_1to1()).pack(side="right", padx=2)
         ctk.CTkButton(zoom_bar, text="맞춤", width=44, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, text_color=TEXT_MAIN, hover_color=BG_INNER, font=FONT_SMALL_BOLD, command=lambda: self.canvas.fit_to_screen()).pack(side="right", padx=2)
@@ -2333,11 +2374,13 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
         self.canvas = InteractiveImageCanvas(body, bg_color=bg_col, draw_mode=True)
         self.canvas.pack(fill="both", expand=True)
         self.canvas.on_draw_cb = self.on_canvas_draw 
+        
+        self.canvas.bind("<Control-MouseWheel>", self.on_ctrl_mousewheel)
 
         self.after(100, lambda: self.canvas.fit_to_screen())
 
         bot_bar = ctk.CTkFrame(self, fg_color="transparent")
-        bot_bar.pack(fill="x", pady=18)
+        bot_bar.pack(fill="x", padx=22, pady=18)
         
         self.btn_run = ctk.CTkButton(bot_bar, text="✨ 칠한 영역 지우기 시작", height=48, corner_radius=10, font=FONT_MAIN_TITLE, fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color="#FFFFFF", command=self.run_eraser)
         self.btn_run.pack(side="left", fill="x", expand=True, padx=(0, 6))
@@ -2345,6 +2388,18 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
         self.btn_save = ctk.CTkButton(bot_bar, text="결과물 저장하기", width=160, height=48, corner_radius=10, font=FONT_CARD_TITLE, fg_color="#262936", hover_color="#323646", command=self.save_result)
         self.btn_save.pack(side="right", padx=(6, 0))
         self.btn_save.configure(state="disabled")
+
+    def on_ctrl_mousewheel(self, event):
+        delta = 5 if event.delta > 0 else -5
+        new_val = max(5, min(300, self.brush_size_var.get() + delta))
+        self.brush_size_var.set(new_val)
+        self.update_brush_size(new_val)
+        # 수정됨: Ctrl 휠 조작 시, 줌(Zoom) 기능이 동시에 실행되는 충돌을 막기 위해 이벤트 전파 중단
+        return "break"
+
+    def update_brush_size(self, value):
+        self.canvas.brush_size = int(float(value))
+        self.canvas.draw_brush_cursor(self.canvas.last_mouse_x, self.canvas.last_mouse_y)
 
     def on_view_change(self, mode):
         self.canvas.set_view_mode(mode)
@@ -2391,7 +2446,7 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
                     self.after(0, lambda: self.floating_prog.update_state(1, 1, ratio))
 
                 res_pil = engine_eraser.process_eraser_to_memory(
-                    image_path=self.current_image_path, mask_image=self.mask_image, progress_callback=step_cb
+                    image_input=self.original_image, mask_image=self.mask_image, progress_callback=step_cb
                 )
                 self.after(0, lambda: self.on_process_complete(res_pil))
             except Exception as e:
@@ -2402,15 +2457,16 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
     def on_process_complete(self, result_pil):
         self.is_processing = False
         self.result_image = result_pil
+        self.original_image = result_pil 
+        
         self.floating_prog.stop()
         self.btn_run.configure(state="normal", text="✨ 칠한 영역 지우기 시작")
         self.btn_save.configure(state="normal", fg_color=ACCENT, hover_color=ACCENT_HOVER)
         
-        self.canvas.set_comparison(self.original_image, self.result_image, mode="toggle_res")
+        self.canvas.set_image(self.original_image)
         
-        self.btn_view_res.configure(state="normal")
-        self.btn_view_orig.configure(state="normal")
-        self.on_view_change("toggle_res")
+        self.btn_view_res.configure(state="disabled", fg_color="transparent", text_color=TEXT_MAIN, border_width=1, border_color=BORDER_COLOR)
+        self.btn_view_orig.configure(state="disabled", fg_color="transparent", text_color=TEXT_MAIN, border_width=1, border_color=BORDER_COLOR)
         
         self.canvas.clear_lines()
         w, h = self.original_image.size
@@ -2436,6 +2492,7 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
         
         messagebox.showinfo("저장 완료", f"이미지가 복원되어 저장되었습니다!\n\n경로:\n{saved_files[0]}", parent=self)
         if self.app.settings.get("auto_open_folder", True) and out_dir: os.startfile(out_dir)
+
 
 class TabEraser(ctk.CTkFrame):
     def __init__(self, master, app):

@@ -16,8 +16,8 @@ def get_unique_filepath(out_dir, base_name, suffix, ext):
             return full_path
         counter += 1
 
-def process_eraser_to_memory(image_path, mask_image, progress_callback=None):
-    """원본 이미지와 마스크 이미지를 받아 지우개(Inpainting) 처리를 수행합니다."""
+def process_eraser_to_memory(image_input, mask_image, progress_callback=None):
+    """원본 이미지(경로 또는 PIL 객체)와 마스크 이미지를 받아 지우개(Inpainting) 처리를 수행합니다."""
     def report(msg, ratio):
         if progress_callback:
             progress_callback(msg, ratio)
@@ -29,8 +29,13 @@ def process_eraser_to_memory(image_path, mask_image, progress_callback=None):
         raise RuntimeError("OpenCV가 설치되어 있지 않습니다.\npip install opencv-python 명령어를 실행해주세요.")
 
     report("이미지 및 마스크 분석 중...", 0.3)
-    # PIL 이미지를 OpenCV용 BGR 배열로 변환
-    original = Image.open(image_path).convert("RGB")
+    
+    # 파일 경로(문자열)로 들어오면 열고, 이미 메모리에 있는 PIL 객체면 그대로 사용 (누적 지우기 지원)
+    if isinstance(image_input, str):
+        original = Image.open(image_input).convert("RGB")
+    else:
+        original = image_input.convert("RGB")
+        
     img_array = np.array(original)
     img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
 
@@ -38,8 +43,8 @@ def process_eraser_to_memory(image_path, mask_image, progress_callback=None):
     mask_array = np.array(mask_image.convert("L"))
 
     report("주변 배경 픽셀 기반 복원 연산 중...", 0.6)
-    # cv2.INPAINT_TELEA 알고리즘을 사용하여 마스크 영역 복원
-    result_bgr = cv2.inpaint(img_bgr, mask_array, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
+    # 기존 TELEA보다 조금 더 부드러운 NS(Navier-Stokes) 알고리즘 사용 및 픽셀 참조 반경 확대
+    result_bgr = cv2.inpaint(img_bgr, mask_array, inpaintRadius=10, flags=cv2.INPAINT_NS)
 
     report("결과물 변환 중...", 0.9)
     # 다시 BGR에서 RGB를 거쳐 PIL 이미지로 변환
