@@ -16,6 +16,28 @@ def get_unique_filepath(out_dir, base_name, suffix, ext):
             return full_path
         counter += 1
 
+def apply_trimming(pil_image, auto_crop=False, make_square=False):
+    """
+    [신규 추가] 이미 배경이 제거된 PIL Image 객체를 받아,
+    빠르게 여백 자르기와 정사각형 맞춤만 수행하고 반환합니다.
+    """
+    im = pil_image.copy() # 원본 보존을 위해 복사본 사용
+    
+    # 1. 빈 여백 자동 자르기
+    if auto_crop:
+        bbox = im.getbbox()
+        if bbox:
+            im = im.crop(bbox)
+
+    # 2. 1:1 정사각형 맞춤
+    if make_square:
+        w, h = im.size
+        m = max(w, h)
+        sq = Image.new("RGBA", (m, m), (0, 0, 0, 0))
+        sq.paste(im, ((m - w) // 2, (m - h) // 2))
+        im = sq
+        
+    return im
 
 def process_image_to_memory(
     image_path,
@@ -64,20 +86,9 @@ def process_image_to_memory(
             if px[3] > 0:
                 ImageDraw.floodfill(im, c, (0, 0, 0, 0), thresh=thresh_val)
 
-    # 2. 빈 여백 자동 자르기
     report("여백 및 비율 다듬는 중...", 0.75)
-    if auto_crop:
-        bbox = im.getbbox()
-        if bbox:
-            im = im.crop(bbox)
-
-    # 3. 1:1 정사각형 맞춤
-    if make_square:
-        w, h = im.size
-        m = max(w, h)
-        sq = Image.new("RGBA", (m, m), (0, 0, 0, 0))
-        sq.paste(im, ((m - w) // 2, (m - h) // 2))
-        im = sq
+    # [수정] 새로 분리한 다듬기 함수를 사용하여 처리
+    im = apply_trimming(im, auto_crop=auto_crop, make_square=make_square)
 
     report("이미지 처리 완료!", 1.0)
     return im

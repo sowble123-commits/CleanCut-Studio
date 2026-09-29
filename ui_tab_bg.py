@@ -135,14 +135,16 @@ class PreviewWindow(ctk.CTkToplevel):
         self.current_idx = 0
         self.is_reprocessing = False
         self.warn_timer = None
+        self._is_updating_ui = False
 
         self.title("변환 결과 미리보기 및 개별 수정")
         self.geometry("820x560")
         self.resizable(False, False)
         self.configure(fg_color=BG_MAIN)
-        self.transient(self.app)
-        self.grab_set()
-
+        
+        # [UX 개선] 모달 잠금 해제 (transient와 grab_set 제거)
+        # 이제 미리보기 창이 열려 있어도 메인 화면 조작 및 최소화가 가능합니다.
+        
         self.floating_prog = FloatingProgressWidget(self)
         self.build_ui()
         self.load_current_item_to_ui()
@@ -235,32 +237,36 @@ class PreviewWindow(ctk.CTkToplevel):
 
         mode_row = ctk.CTkFrame(right_card, fg_color="transparent")
         mode_row.pack(fill="x", padx=18, pady=(0, 12))
-        mode_row.grid_columnconfigure((0, 1), weight=1)
+        mode_row.grid_columnconfigure((0, 1), weight=1, uniform="mode_preview")
 
         self.mode_btns = {}
         for idx, m_name in enumerate(["단색 배경", "일반 사진"]):
             b = ctk.CTkButton(
-                mode_row, text=m_name, height=34, corner_radius=6,
+                mode_row, text=m_name, height=34, width=10, corner_radius=6,
                 font=FONT_DEFAULT_BOLD,
                 command=lambda m=m_name: self.on_change_mode(m)
             )
-            b.grid(row=0, column=idx, sticky="ew", padx=(0, 4) if idx == 0 else (4, 0))
+            padx = (0, 4) if idx == 0 else (4, 0)
+            b.grid(row=0, column=idx, sticky="ew", padx=padx)
             self.mode_btns[m_name] = b
 
         self.strength_section = ctk.CTkFrame(right_card, fg_color="transparent")
         ctk.CTkLabel(self.strength_section, text="제거 감도", font=("맑은 고딕", 13, "bold"), text_color=TEXT_MAIN).pack(anchor="w", pady=(0, 6))
         str_row = ctk.CTkFrame(self.strength_section, fg_color="transparent")
         str_row.pack(fill="x", pady=(0, 12))
-        str_row.grid_columnconfigure((0, 1, 2), weight=1)
+        str_row.grid_columnconfigure((0, 1, 2), weight=1, uniform="str_preview")
 
         self.str_btns = {}
         for idx, s_name in enumerate(["낮음", "표준", "높음"]):
             b = ctk.CTkButton(
-                str_row, text=s_name, height=32, corner_radius=6,
+                str_row, text=s_name, height=32, width=10, corner_radius=6,
                 font=FONT_SMALL_BOLD,
                 command=lambda s=s_name: self.on_change_strength(s)
             )
-            b.grid(row=0, column=idx, sticky="ew", padx=2)
+            if idx == 0: padx = (0, 4)
+            elif idx == 1: padx = (2, 2)
+            else: padx = (4, 0)
+            b.grid(row=0, column=idx, sticky="ew", padx=padx)
             self.str_btns[s_name] = b
 
         self.trim_section = ctk.CTkFrame(right_card, fg_color="transparent")
@@ -317,7 +323,16 @@ class PreviewWindow(ctk.CTkToplevel):
 
         self.lbl_page.configure(text=f"{self.current_idx + 1} / {len(self.items)}")
 
-        checker_img, sz = create_checkerboard_preview(item["pil_img"], box_size=(380, 350))
+        img_to_show = item.get("raw_pil_img", item["pil_img"])
+        pend_cfg = item["pending"]
+        
+        img_to_show = engine_bg.apply_trimming(
+            img_to_show,
+            auto_crop=pend_cfg.get("auto_crop", False),
+            make_square=pend_cfg.get("make_square", False)
+        )
+
+        checker_img, sz = create_checkerboard_preview(img_to_show, box_size=(380, 350))
         ctk_img = ctk.CTkImage(light_image=checker_img, dark_image=checker_img, size=sz)
         self.lbl_img.configure(image=ctk_img, text="")
         self.lbl_img._image = ctk_img
@@ -325,6 +340,7 @@ class PreviewWindow(ctk.CTkToplevel):
         self.refresh_right_controls()
 
     def refresh_right_controls(self):
+        self._is_updating_ui = True
         item = self.items[self.current_idx]
         app_cfg = item["applied"]
         pend_cfg = item["pending"]
@@ -358,15 +374,17 @@ class PreviewWindow(ctk.CTkToplevel):
         self.sw_crop.configure(text=crop_txt)
         self.sw_square.configure(text=sq_txt)
 
-        if pend_cfg["auto_crop"]:
-            self.sw_crop.select()
-        else:
-            self.sw_crop.deselect()
+        if pend_cfg["auto_crop"] != bool(self.sw_crop.get()):
+            if pend_cfg["auto_crop"]:
+                self.sw_crop.select()
+            else:
+                self.sw_crop.deselect()
 
-        if pend_cfg["make_square"]:
-            self.sw_square.select()
-        else:
-            self.sw_square.deselect()
+        if pend_cfg["make_square"] != bool(self.sw_square.get()):
+            if pend_cfg["make_square"]:
+                self.sw_square.select()
+            else:
+                self.sw_square.deselect()
 
         changed_count = sum(1 for it in self.items if it["applied"] != it["pending"])
         if changed_count > 0:
@@ -379,13 +397,19 @@ class PreviewWindow(ctk.CTkToplevel):
                 text="변경사항 적용",
                 border_color=BORDER_COLOR, border_width=1
             )
+        self._is_updating_ui = False
 
     def clear_warning(self):
         if self.warn_timer:
             self.after_cancel(self.warn_timer)
             self.warn_timer = None
         self.lbl_warn.configure(text="")
-        self.refresh_right_controls()
+        
+        changed_count = sum(1 for it in self.items if it["applied"] != it["pending"])
+        if changed_count > 0:
+            self.btn_apply.configure(border_color=ACCENT, border_width=2)
+        else:
+            self.btn_apply.configure(border_color=BORDER_COLOR, border_width=1)
 
     def show_duplicate_warning(self, msg):
         self.shake_window()
@@ -406,16 +430,20 @@ class PreviewWindow(ctk.CTkToplevel):
         self.refresh_right_controls()
 
     def on_change_trim(self):
-        self.clear_warning()
+        if getattr(self, '_is_updating_ui', False):
+            return
+        
         self.items[self.current_idx]["pending"]["auto_crop"] = bool(self.sw_crop.get())
         self.items[self.current_idx]["pending"]["make_square"] = bool(self.sw_square.get())
-        self.refresh_right_controls()
+        
+        self.clear_warning()
+        self.load_current_item_to_ui()
 
     def reset_current_pending(self):
         self.clear_warning()
         item = self.items[self.current_idx]
         item["pending"] = dict(item["applied"])
-        self.refresh_right_controls()
+        self.load_current_item_to_ui()
 
     def prev_item(self):
         if len(self.items) > 1:
@@ -446,21 +474,32 @@ class PreviewWindow(ctk.CTkToplevel):
             total = len(tasks)
             try:
                 for step_num, (item_idx, cfg) in enumerate(tasks, start=1):
-                    fpath = self.items[item_idx]["path"]
-
+                    item = self.items[item_idx]
+                    app_cfg = item["applied"]
+                    
+                    needs_heavy_processing = (cfg["mode"] != app_cfg["mode"] or cfg["strength"] != app_cfg["strength"])
+                    
                     def cb(msg, r, sn=step_num):
                         self.after(0, lambda: self.floating_prog.update_state(sn, total, r))
+                        
+                    if needs_heavy_processing:
+                        new_pil = engine_bg.process_image_to_memory(
+                            image_path=item["path"],
+                            mode=cfg["mode"],
+                            strength=cfg["strength"],
+                            auto_crop=False, 
+                            make_square=False,
+                            progress_callback=cb
+                        )
+                        item["raw_pil_img"] = new_pil
+                        final_pil = engine_bg.apply_trimming(new_pil, auto_crop=cfg["auto_crop"], make_square=cfg["make_square"])
+                    else:
+                        cb("다듬기 설정 적용 중...", 0.5)
+                        base_img = item.get("raw_pil_img", item["pil_img"])
+                        final_pil = engine_bg.apply_trimming(base_img, auto_crop=cfg["auto_crop"], make_square=cfg["make_square"])
+                        cb("다듬기 완료", 1.0)
 
-                    new_pil = engine_bg.process_image_to_memory(
-                        image_path=fpath,
-                        mode=cfg["mode"],
-                        strength=cfg["strength"],
-                        auto_crop=cfg["auto_crop"],
-                        make_square=cfg["make_square"],
-                        progress_callback=cb
-                    )
-
-                    def apply_one(idx=item_idx, pil_res=new_pil, c=cfg):
+                    def apply_one(idx=item_idx, pil_res=final_pil, c=cfg):
                         if idx < len(self.items):
                             self.items[idx]["pil_img"] = pil_res
                             self.items[idx]["applied"] = dict(c)
@@ -562,6 +601,9 @@ class TabBackground(ctk.CTkFrame):
         self.format_buttons = {}
         self.is_processing = False
         self.file_warn_timer = None
+        
+        # [신규] 미리보기 창 추적용 변수
+        self.preview_window = None
 
         self.build_ui()
 
@@ -603,15 +645,16 @@ class TabBackground(ctk.CTkFrame):
 
         mode_btn_row = ctk.CTkFrame(self.card_left, fg_color="transparent")
         mode_btn_row.pack(fill="x", padx=18, pady=(0, 12))
-        mode_btn_row.grid_columnconfigure((0, 1), weight=1)
+        mode_btn_row.grid_columnconfigure((0, 1), weight=1, uniform="mode_main")
 
         for idx, m_name in enumerate(["단색 배경", "일반 사진"]):
             btn = ctk.CTkButton(
-                mode_btn_row, text=m_name, height=34, corner_radius=6,
+                mode_btn_row, text=m_name, height=34, width=10, corner_radius=6,
                 font=FONT_DEFAULT_BOLD,
                 command=lambda m=m_name: self.on_main_mode_change(m)
             )
-            btn.grid(row=0, column=idx, sticky="ew", padx=(0, 4) if idx == 0 else (4, 0))
+            padx = (0, 4) if idx == 0 else (4, 0)
+            btn.grid(row=0, column=idx, sticky="ew", padx=padx)
             self.main_mode_btns[m_name] = btn
             ToolTip(
                 btn,
@@ -619,22 +662,30 @@ class TabBackground(ctk.CTkFrame):
                 "• 일반 사진: 배경이 복잡한 인물·상품 사진을 정밀하게 오려냅니다."
             )
 
-        self.main_strength_box = ctk.CTkFrame(self.card_left, fg_color="transparent")
-        self.main_strength_box.pack(fill="x", padx=18, pady=(0, 16))
+        self.strength_container = ctk.CTkFrame(self.card_left, height=75, fg_color="transparent")
+        self.strength_container.pack(fill="x", padx=18, pady=(0, 16))
+        self.strength_container.pack_propagate(False)
+
+        self.main_strength_box = ctk.CTkFrame(self.strength_container, fg_color="transparent")
+        self.main_strength_box.pack(fill="both", expand=True)
 
         ctk.CTkLabel(self.main_strength_box, text="제거 감도", font=FONT_DEFAULT, text_color=TEXT_SUB).pack(anchor="w", pady=(0, 6))
 
         str_btn_row = ctk.CTkFrame(self.main_strength_box, fg_color="transparent")
         str_btn_row.pack(fill="x")
-        str_btn_row.grid_columnconfigure((0, 1, 2), weight=1)
+        str_btn_row.grid_columnconfigure((0, 1, 2), weight=1, uniform="str_main")
 
+        self.main_str_btns = {}
         for idx, s_name in enumerate(["낮음", "표준", "높음"]):
             btn = ctk.CTkButton(
-                str_btn_row, text=s_name, height=32, corner_radius=6,
+                str_btn_row, text=s_name, height=32, width=10, corner_radius=6,
                 font=FONT_SMALL_BOLD,
                 command=lambda s=s_name: self.on_main_strength_change(s)
             )
-            btn.grid(row=0, column=idx, sticky="ew", padx=2)
+            if idx == 0: padx = (0, 4)
+            elif idx == 1: padx = (2, 2)
+            else: padx = (4, 0)
+            btn.grid(row=0, column=idx, sticky="ew", padx=padx)
             self.main_str_btns[s_name] = btn
             ToolTip(
                 btn,
@@ -664,12 +715,18 @@ class TabBackground(ctk.CTkFrame):
 
         fmt_box = ctk.CTkFrame(self.card_right, fg_color="transparent")
         fmt_box.pack(fill="x", padx=18, pady=(0, 16))
-        for fmt in ["PNG", "WEBP", "ICO", "JPG"]:
+        fmt_box.grid_columnconfigure((0, 1, 2, 3), weight=1, uniform="fmt_main")
+        
+        for idx, fmt in enumerate(["PNG", "WEBP", "ICO", "JPG"]):
             btn = ctk.CTkButton(
-                fmt_box, text=fmt, width=58, height=30, corner_radius=6, font=FONT_SMALL_BOLD,
+                fmt_box, text=fmt, height=30, width=10, corner_radius=6, font=FONT_SMALL_BOLD,
                 command=lambda f=fmt: self.toggle_format(f)
             )
-            btn.pack(side="left", padx=(0, 6))
+            if idx == 0: padx = (0, 4)
+            elif idx == 1: padx = (2, 2)
+            elif idx == 2: padx = (2, 2)
+            else: padx = (4, 0)
+            btn.grid(row=0, column=idx, sticky="ew", padx=padx)
             self.format_buttons[fmt] = btn
         self.update_format_buttons()
 
@@ -698,7 +755,7 @@ class TabBackground(ctk.CTkFrame):
             return
         self.selected_mode = selected_mode
         if selected_mode == "단색 배경":
-            self.main_strength_box.pack(fill="x", padx=18, pady=(0, 16))
+            self.main_strength_box.pack(fill="both", expand=True)
         else:
             self.main_strength_box.pack_forget()
         self.update_main_left_buttons()
@@ -747,11 +804,18 @@ class TabBackground(ctk.CTkFrame):
             self.after_cancel(self.file_warn_timer)
         self.file_warn_timer = self.after(2300, self.refresh_file_badge)
 
+    def show_soft_warning(self, msg):
+        self.drop_card.configure(border_color=WARN_COLOR, border_width=1)
+        self.file_badge.configure(text=f" {msg} ", text_color=WARN_COLOR)
+        if self.file_warn_timer:
+            self.after_cancel(self.file_warn_timer)
+        self.file_warn_timer = self.after(3000, self.refresh_file_badge)
+
     def add_bg_files(self, raw_paths):
         if self.is_processing or not raw_paths:
             return
 
-        valid_exts = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
+        valid_exts = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".ico")
         existing_norm = {os.path.normcase(os.path.abspath(p)) for p in self.bg_file_list}
 
         added_count = 0
@@ -771,6 +835,8 @@ class TabBackground(ctk.CTkFrame):
                                 self.bg_file_list.append(full_p)
                                 existing_norm.add(norm_p)
                                 added_count += 1
+                        else:
+                            invalid_count += 1
             else:
                 if not p.lower().endswith(valid_exts):
                     invalid_count += 1
@@ -783,13 +849,18 @@ class TabBackground(ctk.CTkFrame):
                     existing_norm.add(norm_p)
                     added_count += 1
 
-        if dup_count > 0:
+        if dup_count > 0 or invalid_count > 0:
             if added_count > 0:
-                self.show_file_card_warning(f"! 중복 파일 {dup_count}개 제외됨 ({added_count}개 추가 완료)")
+                parts = []
+                if dup_count > 0: parts.append(f"중복 {dup_count}개")
+                if invalid_count > 0: parts.append(f"미지원 {invalid_count}개")
+                msg = f"✅ {added_count}개 추가 (" + ", ".join(parts) + " 제외)"
+                self.show_soft_warning(msg)
             else:
-                self.show_file_card_warning(f"! 이미 추가된 중복 파일입니다 ({dup_count}개)")
-        elif invalid_count > 0 and added_count == 0:
-            self.show_file_card_warning("! 지원하지 않는 파일 형식입니다 (PNG, JPG, WEBP만 가능)")
+                if invalid_count > 0 and dup_count == 0:
+                    self.show_file_card_warning("! 지원하지 않는 파일 형식입니다 (PNG, JPG, WEBP, BMP, ICO 지원)")
+                else:
+                    self.show_file_card_warning(f"! 이미 추가된 중복 파일입니다 ({dup_count}개)")
         else:
             self.refresh_file_badge()
 
@@ -820,7 +891,7 @@ class TabBackground(ctk.CTkFrame):
             return
         files = filedialog.askopenfilenames(
             title="배경을 제거할 이미지 추가 선택 (여러 폴더에서 반복 추가 가능)",
-            filetypes=[("이미지 파일", "*.png;*.jpg;*.jpeg;*.webp;*.bmp"), ("모든 파일", "*.*")]
+            filetypes=[("이미지 파일", "*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.ico"), ("모든 파일", "*.*")]
         )
         if files:
             self.add_bg_files(list(files))
@@ -828,6 +899,23 @@ class TabBackground(ctk.CTkFrame):
     def start_bg_process(self, open_preview=False):
         if self.is_processing:
             return
+
+        # [UX 개선] 미리보기 창 중복 실행 방지 및 포커스 복귀 로직
+        if open_preview and self.preview_window is not None and self.preview_window.winfo_exists():
+            ans = messagebox.askyesno(
+                "미리보기 창 열림",
+                "이미 열려있는 미리보기 창이 있습니다.\n기존 작업 내역을 무시하고 새로 변환하시겠습니까?"
+            )
+            if not ans:
+                # 아니요를 누르면 뒤에 숨어있던 기존 창을 맨 앞으로 가져옴
+                self.preview_window.deiconify()
+                self.preview_window.lift()
+                self.preview_window.focus_force()
+                return
+            else:
+                # 네를 누르면 기존 창 강제 종료
+                self.preview_window.destroy()
+                self.preview_window = None
 
         active_formats = [fmt for fmt, selected in self.selected_formats.items() if selected]
         has_error = False
@@ -861,9 +949,9 @@ class TabBackground(ctk.CTkFrame):
         file_names = [os.path.basename(p) for p in self.bg_file_list]
         self.app.floating_prog.start(file_names)
 
-        self.app.engine_dot.configure(text="● Processing Active...", text_color=WARN_COLOR)
+        self.app.engine_dot.configure(text="● AI 엔진 연산 중 (화면 멈춤 정상)...", text_color=WARN_COLOR)
         self.bg_preview_btn.configure(state="disabled")
-        self.bg_run_btn.configure(state="disabled", text="변환 작업 진행 중...")
+        self.bg_run_btn.configure(state="disabled", text="AI 연산 진행 중 (화면 멈춤 정상)...")
 
         def worker():
             total = len(self.bg_file_list)
@@ -875,14 +963,17 @@ class TabBackground(ctk.CTkFrame):
                         self.after(0, lambda: self.app.floating_prog.update_state(i, total, ratio))
 
                     if open_preview:
-                        pil_res = engine_bg.process_image_to_memory(
+                        raw_pil = engine_bg.process_image_to_memory(
                             image_path=fpath,
                             mode=mode,
                             strength=strength,
-                            auto_crop=auto_crop,
-                            make_square=make_square,
+                            auto_crop=False, 
+                            make_square=False,
                             progress_callback=step_cb
                         )
+                        
+                        final_pil = engine_bg.apply_trimming(raw_pil, auto_crop=auto_crop, make_square=make_square)
+
                         init_cfg = {
                             "mode": mode,
                             "strength": strength,
@@ -891,7 +982,8 @@ class TabBackground(ctk.CTkFrame):
                         }
                         preview_items.append({
                             "path": fpath,
-                            "pil_img": pil_res,
+                            "pil_img": final_pil,       
+                            "raw_pil_img": raw_pil,     
                             "applied": dict(init_cfg),
                             "pending": dict(init_cfg),
                             "saved": False
@@ -926,7 +1018,8 @@ class TabBackground(ctk.CTkFrame):
         self.bg_preview_btn.configure(state="normal")
         self.bg_run_btn.configure(state="normal", text="일괄 배경 제거 및 변환 시작")
 
-        PreviewWindow(self, preview_items, active_formats)
+        # [수정] 열린 미리보기 창을 변수에 할당하여 관리
+        self.preview_window = PreviewWindow(self, preview_items, active_formats)
 
     def on_bg_complete(self, total, out_dir):
         self.is_processing = False

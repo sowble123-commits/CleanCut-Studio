@@ -18,6 +18,7 @@ class TabSettings(ctk.CTkFrame):
         card = ctk.CTkFrame(self, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR)
         card.pack(fill="both", expand=True)
 
+        # 1. 파일 저장 위치
         row1 = ctk.CTkFrame(card, fg_color="transparent")
         row1.pack(fill="x", padx=22, pady=(20, 12))
         ctk.CTkLabel(row1, text="1. 결과물 저장 위치", font=FONT_CARD_TITLE, text_color=TEXT_MAIN).pack(anchor="w")
@@ -42,17 +43,27 @@ class TabSettings(ctk.CTkFrame):
             command=self.clear_custom_out_dir
         ).pack(side="left")
 
+        # 2. 화면 테마 모드 (독립형 버튼으로 완벽 교체 및 실시간 테마 적용)
         row2 = ctk.CTkFrame(card, fg_color="transparent")
         row2.pack(fill="x", padx=22, pady=12)
         ctk.CTkLabel(row2, text="2. 화면 테마 모드", font=FONT_CARD_TITLE, text_color=TEXT_MAIN).pack(side="left")
-        self.theme_seg = ctk.CTkSegmentedButton(
-            row2, values=["다크 모드", "화이트 모드"], width=200, height=32,
-            font=FONT_DEFAULT_BOLD, selected_color=ACCENT, selected_hover_color=ACCENT_HOVER,
-            command=self.on_change_theme
+        
+        theme_btn_row = ctk.CTkFrame(row2, fg_color="transparent")
+        theme_btn_row.pack(side="right")
+        
+        self.btn_dark = ctk.CTkButton(
+            theme_btn_row, text="다크 모드", width=90, height=32, corner_radius=6, font=FONT_DEFAULT_BOLD,
+            command=lambda: self.on_change_theme("dark")
         )
-        self.theme_seg.set("화이트 모드" if self.app.settings.get("theme") == "light" else "다크 모드")
-        self.theme_seg.pack(side="right")
+        self.btn_dark.pack(side="left", padx=(0, 6))
+        
+        self.btn_light = ctk.CTkButton(
+            theme_btn_row, text="화이트 모드", width=90, height=32, corner_radius=6, font=FONT_DEFAULT_BOLD,
+            command=lambda: self.on_change_theme("light")
+        )
+        self.btn_light.pack(side="left")
 
+        # 3. 완료 후 결과 폴더 자동 열기
         row3 = ctk.CTkFrame(card, fg_color="transparent")
         row3.pack(fill="x", padx=22, pady=12)
         ctk.CTkLabel(row3, text="3. 저장 완료 후 결과물 폴더 자동으로 열기", font=FONT_CARD_TITLE, text_color=TEXT_MAIN).pack(side="left")
@@ -61,6 +72,7 @@ class TabSettings(ctk.CTkFrame):
             self.sw_auto_open.select()
         self.sw_auto_open.pack(side="right")
 
+        # 4. 저장 파일 이름 뒤에 붙일 글자
         row4 = ctk.CTkFrame(card, fg_color="transparent")
         row4.pack(fill="x", padx=22, pady=12)
         left_r4 = ctk.CTkFrame(row4, fg_color="transparent")
@@ -72,6 +84,9 @@ class TabSettings(ctk.CTkFrame):
         self.entry_suffix.insert(0, self.app.settings.get("filename_suffix", "_cut"))
         self.entry_suffix.pack(side="right")
         self.entry_suffix.bind("<KeyRelease>", self.on_change_suffix)
+
+        # 초기 테마 버튼 색상 세팅
+        self.update_theme_buttons()
 
     def choose_custom_out_dir(self):
         folder = filedialog.askdirectory(title="결과물을 저장할 고정 폴더 선택")
@@ -86,11 +101,20 @@ class TabSettings(ctk.CTkFrame):
         self.app.settings["custom_out_dir"] = ""
         self.app.save_settings()
 
-    def on_change_theme(self, val):
-        mode = "light" if val == "화이트 모드" else "dark"
+    def on_change_theme(self, mode):
         ctk.set_appearance_mode(mode)
         self.app.settings["theme"] = mode
         self.app.save_settings()
+        self.update_theme_buttons()
+
+    def update_theme_buttons(self):
+        current = self.app.settings.get("theme", "dark")
+        if current == "dark":
+            self.btn_dark.configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER, border_width=0)
+            self.btn_light.configure(fg_color=BG_INNER, text_color=TEXT_SUB, hover_color=BORDER_COLOR, border_width=1, border_color=BORDER_COLOR)
+        else:
+            self.btn_light.configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER, border_width=0)
+            self.btn_dark.configure(fg_color=BG_INNER, text_color=TEXT_SUB, hover_color=BORDER_COLOR, border_width=1, border_color=BORDER_COLOR)
 
     def on_toggle_auto_open(self):
         self.app.settings["auto_open_folder"] = bool(self.sw_auto_open.get())
