@@ -23,7 +23,8 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
         self.is_processing = False
         
         self.title("매직 지우개 작업 공간")
-        self.geometry("900x700")
+        self.geometry("1000x720")
+        self.resizable(True, True)
         self.configure(fg_color=BG_MAIN)
         
         self.floating_prog = FloatingProgressWidget(self)
@@ -40,15 +41,9 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
         tool_row = ctk.CTkFrame(top_bar, fg_color="transparent")
         tool_row.pack(side="left", padx=22, pady=10)
         
-        # [수정] 박스 안 박스(SegmentedButton)를 개별 버튼으로 분리
-        self.btn_tool_brush = ctk.CTkButton(tool_row, text="브러쉬", width=60, height=28, corner_radius=6, fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER, font=FONT_SMALL_BOLD, command=lambda: self.on_tool_change("브러쉬"))
-        self.btn_tool_brush.pack(side="left", padx=(0, 4))
-        self.btn_tool_pan = ctk.CTkButton(tool_row, text="화면 이동", width=60, height=28, corner_radius=6, fg_color="transparent", text_color=TEXT_MAIN, hover_color=BG_INNER, font=FONT_SMALL_BOLD, command=lambda: self.on_tool_change("화면 이동"))
-        self.btn_tool_pan.pack(side="left", padx=(0, 16))
-        
-        ctk.CTkLabel(tool_row, text="브러쉬 두께", font=FONT_DEFAULT, text_color=TEXT_SUB).pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(tool_row, text="브러쉬 두께", font=FONT_DEFAULT_BOLD, text_color=TEXT_MAIN).pack(side="left", padx=(0, 12))
         self.brush_size_var = tk.IntVar(value=20)
-        self.slider_brush = ctk.CTkSlider(tool_row, from_=5, to=60, width=120, button_color=ACCENT, progress_color=ACCENT, variable=self.brush_size_var)
+        self.slider_brush = ctk.CTkSlider(tool_row, from_=5, to=60, width=150, button_color=ACCENT, progress_color=ACCENT, variable=self.brush_size_var)
         self.slider_brush.pack(side="left")
 
         act_row = ctk.CTkFrame(top_bar, fg_color="transparent")
@@ -62,8 +57,7 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
         zoom_bar = ctk.CTkFrame(body, fg_color="transparent")
         zoom_bar.pack(fill="x", pady=(0, 10))
         
-        # [수정] 박스 안 박스(SegmentedButton)를 개별 버튼으로 분리
-        self.btn_view_res = ctk.CTkButton(zoom_bar, text="결과물", width=60, height=28, corner_radius=6, fg_color="transparent", text_color=TEXT_MAIN, hover_color=BG_INNER, font=FONT_SMALL_BOLD, command=lambda: self.on_view_change("toggle_res"))
+        self.btn_view_res = ctk.CTkButton(zoom_bar, text="결과물", width=60, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, text_color=TEXT_MAIN, hover_color=BG_INNER, font=FONT_SMALL_BOLD, command=lambda: self.on_view_change("toggle_res"))
         self.btn_view_res.pack(side="left", padx=(0, 4))
         self.btn_view_res.configure(state="disabled")
         
@@ -71,23 +65,22 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
         self.btn_view_orig.pack(side="left")
         self.btn_view_orig.configure(state="disabled")
         
-        ctk.CTkLabel(zoom_bar, text=" Spacebar 누른 채로 드래그 시 화면 이동", font=FONT_SMALL, text_color=TEXT_SUB).pack(side="left", padx=16)
+        ctk.CTkLabel(zoom_bar, text="Spacebar+드래그: 화면 이동", font=FONT_SMALL, text_color=TEXT_SUB).pack(side="left", padx=16)
         
-        ctk.CTkButton(zoom_bar, text="1:1", width=50, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, text_color=TEXT_MAIN, font=FONT_SMALL_BOLD, command=lambda: self.canvas.zoom_1to1()).pack(side="right", padx=2)
-        ctk.CTkButton(zoom_bar, text="맞춤", width=50, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, text_color=TEXT_MAIN, font=FONT_SMALL_BOLD, command=lambda: self.canvas.fit_to_screen()).pack(side="right", padx=2)
-        ctk.CTkButton(zoom_bar, text="-", width=40, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, text_color=TEXT_MAIN, font=FONT_SMALL_BOLD, command=lambda: self.canvas.zoom_out()).pack(side="right", padx=2)
-        ctk.CTkButton(zoom_bar, text="+", width=40, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, text_color=TEXT_MAIN, font=FONT_SMALL_BOLD, command=lambda: self.canvas.zoom_in()).pack(side="right", padx=2)
+        ctk.CTkButton(zoom_bar, text="1:1", width=44, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, text_color=TEXT_MAIN, hover_color=BG_INNER, font=FONT_SMALL_BOLD, command=lambda: self.canvas.zoom_1to1()).pack(side="right", padx=2)
+        ctk.CTkButton(zoom_bar, text="맞춤", width=44, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, text_color=TEXT_MAIN, hover_color=BG_INNER, font=FONT_SMALL_BOLD, command=lambda: self.canvas.fit_to_screen()).pack(side="right", padx=2)
+        ctk.CTkButton(zoom_bar, text="-", width=36, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, text_color=TEXT_MAIN, hover_color=BG_INNER, font=FONT_SMALL_BOLD, command=lambda: self.canvas.zoom_out()).pack(side="right", padx=2)
+        ctk.CTkButton(zoom_bar, text="+", width=36, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, text_color=TEXT_MAIN, hover_color=BG_INNER, font=FONT_SMALL_BOLD, command=lambda: self.canvas.zoom_in()).pack(side="right", padx=2)
 
         bg_col = BG_INNER[1] if self.app.settings.get("theme") == "dark" else BG_INNER[0]
         self.canvas = InteractiveImageCanvas(body, bg_color=bg_col, draw_mode=True)
         self.canvas.pack(fill="both", expand=True)
         self.canvas.on_draw_cb = self.on_canvas_draw 
 
-        # [수정] 위젯 렌더링 후 맞춤 동기화
         self.after(100, lambda: self.canvas.fit_to_screen())
 
         bot_bar = ctk.CTkFrame(self, fg_color="transparent")
-        bot_bar.pack(fill="x", padx=22, pady=18)
+        bot_bar.pack(fill="x", pady=18)
         
         self.btn_run = ctk.CTkButton(bot_bar, text="칠한 영역 지우기 시작", height=46, corner_radius=10, font=FONT_CARD_TITLE, fg_color=ACCENT, hover_color=ACCENT_HOVER, command=self.run_eraser)
         self.btn_run.pack(side="left", fill="x", expand=True, padx=(0, 6))
@@ -96,24 +89,14 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
         self.btn_save.pack(side="right", padx=(6, 0))
         self.btn_save.configure(state="disabled")
 
-    def on_tool_change(self, tool_name):
-        is_pan = (tool_name == "화면 이동")
-        self.canvas.set_pan_mode(is_pan)
-        if is_pan:
-            self.btn_tool_pan.configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER)
-            self.btn_tool_brush.configure(fg_color="transparent", text_color=TEXT_MAIN, hover_color=BG_INNER)
-        else:
-            self.btn_tool_brush.configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER)
-            self.btn_tool_pan.configure(fg_color="transparent", text_color=TEXT_MAIN, hover_color=BG_INNER)
-
     def on_view_change(self, mode):
         self.canvas.set_view_mode(mode)
         if mode == "toggle_res":
-            self.btn_view_res.configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER)
-            self.btn_view_orig.configure(fg_color="transparent", text_color=TEXT_MAIN, hover_color=BG_INNER)
+            self.btn_view_res.configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER, border_width=0)
+            self.btn_view_orig.configure(fg_color="transparent", text_color=TEXT_MAIN, hover_color=BG_INNER, border_width=1, border_color=BORDER_COLOR)
         else:
-            self.btn_view_orig.configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER)
-            self.btn_view_res.configure(fg_color="transparent", text_color=TEXT_MAIN, hover_color=BG_INNER)
+            self.btn_view_orig.configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER, border_width=0)
+            self.btn_view_res.configure(fg_color="transparent", text_color=TEXT_MAIN, hover_color=BG_INNER, border_width=1, border_color=BORDER_COLOR)
 
     def on_canvas_draw(self, x1, y1, x2, y2, brush_size):
         if self.mask_draw:
@@ -121,16 +104,19 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
 
     def reset_mask(self):
         if not self.original_image: return
-        self.canvas.delete("paint")
+        
+        self.canvas.clear_lines()
         w, h = self.original_image.size
         self.mask_image = Image.new("L", (w, h), 0)
         self.mask_draw = ImageDraw.Draw(self.mask_image)
+        
         self.btn_save.configure(state="disabled")
+        self.btn_view_res.configure(state="disabled", fg_color="transparent", text_color=TEXT_MAIN, border_width=1, border_color=BORDER_COLOR)
+        self.btn_view_orig.configure(state="disabled", fg_color="transparent", text_color=TEXT_MAIN, border_width=1, border_color=BORDER_COLOR)
         
-        self.btn_view_res.configure(state="disabled", fg_color="transparent", text_color=TEXT_MAIN)
-        self.btn_view_orig.configure(state="disabled", fg_color=ACCENT, text_color="#FFFFFF")
-        
-        self.canvas.set_image(self.original_image)
+        if self.result_image:
+            self.result_image = None
+            self.on_view_change("toggle_orig")
 
     def run_eraser(self):
         if self.is_processing or not self.current_image_path: return
@@ -169,7 +155,7 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
         self.btn_view_orig.configure(state="normal")
         self.on_view_change("toggle_res")
         
-        self.canvas.delete("paint")
+        self.canvas.clear_lines()
         w, h = self.original_image.size
         self.mask_image = Image.new("L", (w, h), 0)
         self.mask_draw = ImageDraw.Draw(self.mask_image)
@@ -206,16 +192,29 @@ class TabEraser(ctk.CTkFrame):
         ctk.CTkLabel(header, text="매직 지우개", font=FONT_MAIN_TITLE, text_color=TEXT_MAIN).pack(anchor="w")
         ctk.CTkLabel(header, text="지우고 싶은 글씨나 로고 위를 마우스로 칠하면 주변 배경에 맞춰 자연스럽게 복원합니다.", font=FONT_DEFAULT, text_color=TEXT_SUB).pack(anchor="w", pady=(2, 0))
 
-        card = ctk.CTkFrame(self, height=180, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR)
-        card.pack(fill="x", pady=(20, 16))
-        card.pack_propagate(False)
+        self.drop_card = ctk.CTkFrame(self, height=130, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR, cursor="hand2")
+        self.drop_card.pack(fill="x", pady=(20, 16))
+        self.drop_card.pack_propagate(False)
 
-        ctk.CTkLabel(card, text="넓은 화면에서 이미지를 정밀하게 복원해보세요", font=("맑은 고딕", 15, "bold"), text_color=TEXT_MAIN).pack(pady=(45, 10))
+        lbl1 = ctk.CTkLabel(self.drop_card, text="+ 복원할 이미지 파일 추가하기 (클릭 또는 드래그 앤 드롭)", font=FONT_CARD_TITLE, text_color=TEXT_MAIN)
+        lbl1.pack(pady=(22, 10))
         
-        ctk.CTkButton(
-            card, text="매직 지우개 작업창 열기", height=42, width=240, corner_radius=8,
+        btn_open = ctk.CTkButton(
+            self.drop_card, text="이미지 불러오기 및 작업 공간 열기", height=36, width=240, corner_radius=8,
             font=FONT_DEFAULT_BOLD, fg_color=ACCENT, hover_color=ACCENT_HOVER, command=self.open_workspace
-        ).pack()
+        )
+        btn_open.pack()
+
+        for widget in [self.drop_card, lbl1]:
+            widget.bind("<Button-1>", lambda e: self.open_workspace())
+
+    def on_drop_files(self, dropped_items):
+        if self.app.current_page_name != "eraser": return
+        for item in dropped_items:
+            fpath = item.decode("mbcs") if isinstance(item, bytes) else str(item)
+            if fpath.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.bmp')):
+                EraserWorkspaceWindow(self, fpath)
+                break
 
     def open_workspace(self):
         file_path = filedialog.askopenfilename(title="지우개를 사용할 이미지 선택", filetypes=[("이미지 파일", "*.png;*.jpg;*.jpeg;*.webp")])

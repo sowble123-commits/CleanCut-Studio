@@ -57,7 +57,6 @@ class ToolTip:
             self.tip_window.destroy()
             self.tip_window = None
 
-
 class FloatingProgressWidget:
     def __init__(self, parent_window):
         self.parent = parent_window
@@ -228,7 +227,6 @@ class FloatingProgressWidget:
         self.popup.place_forget()
         self.capsule.place_forget()
 
-
 class InteractiveImageCanvas(tk.Canvas):
     def __init__(self, master, bg_color, draw_mode=False, **kwargs):
         super().__init__(master, bg=bg_color, highlightthickness=0, **kwargs)
@@ -253,6 +251,8 @@ class InteractiveImageCanvas(tk.Canvas):
         self.is_drawing = False
         self.is_space_pressed = False
         
+        self.lines = []  # 화면 이동 시에도 브러쉬를 기억하기 위한 배열
+        
         self.bind("<MouseWheel>", self.on_mousewheel)
         self.bind("<ButtonPress-2>", self.start_pan_b2)
         self.bind("<B2-Motion>", self.do_pan_b2)
@@ -267,6 +267,11 @@ class InteractiveImageCanvas(tk.Canvas):
         self.bind("<KeyRelease-space>", self.on_space_release)
         
         self.set_pan_mode(False)
+
+    def clear_lines(self):
+        """브러쉬 라인 초기화 (줌/이동 상태는 유지됨)"""
+        self.lines.clear()
+        self.delete("paint")
 
     def set_image(self, pil_img):
         self.orig_img = pil_img
@@ -338,6 +343,10 @@ class InteractiveImageCanvas(tk.Canvas):
             
             self.create_line(self.last_draw_cx, self.last_draw_cy, event.x, event.y, 
                              width=r*2, fill=self.brush_color, capstyle=tk.ROUND, smooth=True, tags="paint")
+            
+            # 브러쉬 궤적을 이미지 내부 좌표계로 저장
+            self.lines.append((self.last_draw_x, self.last_draw_y, ix, iy, self.brush_size, self.brush_color))
+            
             if self.on_draw_cb:
                 self.on_draw_cb(self.last_draw_x, self.last_draw_y, ix, iy, self.brush_size)
                 
@@ -379,10 +388,9 @@ class InteractiveImageCanvas(tk.Canvas):
         
         new_scale = self.scale * factor
         
-        # [버그 수정] 이미지가 허공으로 증발하지 않도록 축소 한계치 계산
         cw, ch = self.winfo_width(), self.winfo_height()
         iw, ih = self.orig_img.size
-        min_scale = min(cw / iw, ch / ih) * 0.1 
+        min_scale = min(cw / max(1, iw), ch / max(1, ih)) * 0.1 
         new_scale = max(min_scale, min(new_scale, 30.0))
         
         self.offset_x = cx - (cx - self.offset_x) * (new_scale / self.scale)
@@ -409,7 +417,8 @@ class InteractiveImageCanvas(tk.Canvas):
         return (cx - self.offset_x) / self.scale, (cy - self.offset_y) / self.scale
 
     def redraw(self):
-        self.delete("img", "slider")
+        # 이동/줌 시 기존 이미지 라인 완벽히 지우기
+        self.delete("img", "slider", "paint")
         if not self.orig_img: return
         
         cw, ch = self.winfo_width(), self.winfo_height()
@@ -433,7 +442,8 @@ class InteractiveImageCanvas(tk.Canvas):
         if new_w <= 0 or new_h <= 0: return
         
         resample = Image.Resampling.NEAREST if self.scale >= 1.0 else Image.Resampling.LANCZOS
-        draw_x, draw_y = max(0, self.offset_x), max(0, self.offset_y)
+        # 소수점 좌표계로 인한 에러 방지용 강제 int 변환
+        draw_x, draw_y = int(max(0, self.offset_x)), int(max(0, self.offset_y))
         
         if self.view_mode != "split" or not self.res_img:
             cropped = active_img.crop((left, top, right, bottom))
@@ -448,7 +458,8 @@ class InteractiveImageCanvas(tk.Canvas):
             r_res = c_res.resize((new_w, new_h), resample)
             
             split_x_canvas = int(cw * self.split_ratio)
-            split_x_img = split_x_canvas - draw_x
+            # 소수점 에러 방지용 int 처리
+            split_x_img = int(split_x_canvas - draw_x)
             
             if split_x_img <= 0:
                 final_img = r_res
@@ -471,3 +482,13 @@ class InteractiveImageCanvas(tk.Canvas):
             self.create_line(split_x_canvas+5, hy-6, split_x_canvas+5, hy+6, fill=ACCENT, width=2, tags="slider")
             
         self.tag_lower("img")
+        
+        # 이미지 재렌더링 후 화면에 기록된 브러쉬도 스케일에 맞게 다시 그려주기
+        if self.draw_mode:
+            for line in self.lines:
+                x1 = line[0] * self.scale + self.offset_x
+                y1 = line[1] * self.scale + self.offset_y
+                x2 = line[2] * self.scale + self.offset_x
+                y2 = line[3] * self.scale + self.offset_y
+                r = (line[4] * self.scale) / 2
+                self.create_line(x1, y1, x2, y2, width=r*2, fill=line[5], capstyle=tk.ROUND, smooth=True, tags="paint")

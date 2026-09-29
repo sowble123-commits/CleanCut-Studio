@@ -90,9 +90,8 @@ class CleanCutApp(ctk.CTk):
 
         ctk.CTkLabel(self.sidebar, text="WORKSPACE", font=("맑은 고딕", 10, "bold"), text_color=TEXT_SUB).pack(anchor="w", padx=24, pady=(0, 8))
 
-        # [수정] 사이드바 이름 세련되게 변경
         self.nav_bg_btn = ctk.CTkButton(
-            self.sidebar, text="  1. 배경 제거 (누끼)", anchor="w", height=42, corner_radius=8,
+            self.sidebar, text="  1. 배경 지우기", anchor="w", height=42, corner_radius=8,
             font=FONT_CARD_TITLE, command=lambda: self.select_page("bg")
         )
         self.nav_bg_btn.pack(fill="x", padx=16, pady=4)
@@ -159,6 +158,10 @@ class CleanCutApp(ctk.CTk):
     def on_drop_files(self, dropped_items):
         if self.current_page_name == "bg" and hasattr(self.page_bg, "on_drop_files"):
             self.page_bg.on_drop_files(dropped_items)
+        elif self.current_page_name == "eraser" and hasattr(self.page_eraser, "on_drop_files"):
+            self.page_eraser.on_drop_files(dropped_items)
+        elif self.current_page_name == "upscale" and hasattr(self.page_upscale, "on_drop_files"):
+            self.page_upscale.on_drop_files(dropped_items)
 
 if __name__ == "__main__":
     app = CleanCutApp()
