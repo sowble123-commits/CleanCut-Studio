@@ -1,10 +1,13 @@
 import os
+import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
+from PIL import Image
 
 from config import *
-from ui_common import ToolTip
+from ui_common import ToolTip, FloatingProgressWidget, InteractiveImageCanvas
+import engine_upscale
 
 class UpFileListModal(ctk.CTkToplevel):
     def __init__(self, tab_up):
@@ -102,17 +105,94 @@ class UpFileListModal(ctk.CTkToplevel):
         self.tab_up.select_up_files()
         self.render_list()
 
+class UpPreviewWindow(ctk.CTkToplevel):
+    def __init__(self, tab_up, items_data):
+        super().__init__(tab_up.app)
+        self.tab_up = tab_up
+        self.app = tab_up.app
+        self.items = items_data
+        self.current_idx = 0
+        
+        self.title("업스케일링 결과 미리보기")
+        self.geometry("820x600")
+        self.configure(fg_color=BG_MAIN)
+        self.build_ui()
+        self.load_item()
+
+    def build_ui(self):
+        top_bar = ctk.CTkFrame(self, height=54, fg_color=BG_SIDEBAR, border_width=1, border_color=BORDER_COLOR)
+        top_bar.pack(fill="x")
+        self.lbl_filename = ctk.CTkLabel(top_bar, text="", font=FONT_CARD_TITLE, text_color=TEXT_MAIN)
+        self.lbl_filename.pack(side="left", padx=22, pady=12)
+        
+        btn_row = ctk.CTkFrame(top_bar, fg_color="transparent")
+        btn_row.pack(side="right", padx=22, pady=10)
+        ctk.CTkButton(btn_row, text="전체 저장", width=100, height=32, corner_radius=6, font=FONT_DEFAULT_BOLD, fg_color=ACCENT, command=self.save_all_items).pack(side="right")
+        ctk.CTkButton(btn_row, text="개별 저장", width=88, height=32, corner_radius=6, font=FONT_DEFAULT_BOLD, fg_color=("#E2E8F0", "#262936"), text_color=TEXT_MAIN, command=self.save_current_item).pack(side="right", padx=8)
+
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=22, pady=18)
+        
+        zoom_bar = ctk.CTkFrame(body, fg_color="transparent")
+        zoom_bar.pack(fill="x", pady=(0, 10))
+        ctk.CTkButton(zoom_bar, text="◀ 이전", width=60, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, command=self.prev_item).pack(side="left")
+        self.lbl_page = ctk.CTkLabel(zoom_bar, text="1 / 1", font=FONT_DEFAULT_BOLD, text_color=TEXT_MAIN, width=60)
+        self.lbl_page.pack(side="left")
+        ctk.CTkButton(zoom_bar, text="다음 ▶", width=60, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, command=self.next_item).pack(side="left")
+        
+        ctk.CTkLabel(zoom_bar, text=" 중앙의 세로선을 마우스로 잡아 좌우로 끌며 화질을 비교하세요.", font=FONT_SMALL, text_color=TEXT_SUB).pack(side="left", padx=20)
+        
+        ctk.CTkButton(zoom_bar, text="1:1", width=50, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, command=lambda: self.canvas.zoom_1to1()).pack(side="right", padx=2)
+        ctk.CTkButton(zoom_bar, text="맞춤", width=50, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, command=lambda: self.canvas.fit_to_screen()).pack(side="right", padx=2)
+        ctk.CTkButton(zoom_bar, text="-", width=40, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, command=lambda: self.canvas.zoom_out()).pack(side="right", padx=2)
+        ctk.CTkButton(zoom_bar, text="+", width=40, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, command=lambda: self.canvas.zoom_in()).pack(side="right", padx=2)
+
+        bg_col = BG_INNER[1] if self.app.settings.get("theme") == "dark" else BG_INNER[0]
+        self.canvas = InteractiveImageCanvas(body, bg_color=bg_col, draw_mode=False)
+        self.canvas.pack(fill="both", expand=True)
+
+    def load_item(self):
+        if not self.items: return self.destroy()
+        item = self.items[self.current_idx]
+        self.lbl_filename.configure(text=os.path.basename(item["path"]))
+        self.lbl_page.configure(text=f"{self.current_idx + 1} / {len(self.items)}")
+        
+        self.canvas.set_comparison(item["orig_img"], item["res_img"], mode="split")
+        self.after(100, lambda: self.canvas.fit_to_screen())
+
+    def prev_item(self):
+        if len(self.items) > 1: 
+            self.current_idx = (self.current_idx - 1) % len(self.items)
+            self.load_item()
+            
+    def next_item(self):
+        if len(self.items) > 1: 
+            self.current_idx = (self.current_idx + 1) % len(self.items)
+            self.load_item()
+
+    def save_current_item(self):
+        if hasattr(self.app, 'sync_settings_from_ui'): self.app.sync_settings_from_ui()
+        engine_upscale.save_upscaled_image(self.items[self.current_idx]["res_img"], self.items[self.current_idx]["path"], self.app.settings.get("custom_out_dir", ""))
+        messagebox.showinfo("저장", "개별 저장 완료", parent=self)
+
+    def save_all_items(self):
+        if hasattr(self.app, 'sync_settings_from_ui'): self.app.sync_settings_from_ui()
+        last_dir = ""
+        for it in self.items:
+            last_dir, _ = engine_upscale.save_upscaled_image(it["res_img"], it["path"], self.app.settings.get("custom_out_dir", ""))
+        messagebox.showinfo("저장", "전체 저장 완료!", parent=self)
+        if self.app.settings.get("auto_open_folder", True) and last_dir: os.startfile(last_dir)
+        self.destroy()
 
 class TabUpscale(ctk.CTkFrame):
     def __init__(self, master, app):
         super().__init__(master, fg_color="transparent")
         self.app = app
         
-        # 파일 목록 및 상태 관리 변수
         self.up_file_list = []
-        self.selected_engine = "고속 선명화"
-        self.selected_type = "실사 사진"
-        self.selected_scale = "2배 (2x)"
+        self.selected_engine = "기본 선명화 (빠름)"
+        self.selected_type = "사진"
+        self.selected_scale = "2x"
         self.file_warn_timer = None
         
         self.engine_btns = {}
@@ -124,15 +204,14 @@ class TabUpscale(ctk.CTkFrame):
     def build_ui(self):
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.pack(fill="x", pady=(0, 16))
-        ctk.CTkLabel(header, text="AI 초고화질 복원 (업스케일링)", font=FONT_MAIN_TITLE, text_color=TEXT_MAIN).pack(anchor="w")
+        ctk.CTkLabel(header, text="이미지 업스케일링", font=FONT_MAIN_TITLE, text_color=TEXT_MAIN).pack(anchor="w")
         ctk.CTkLabel(header, text="저해상도 이미지의 깨진 픽셀과 노이즈를 제거하고 최대 4배까지 선명하게 확대합니다.", font=FONT_DEFAULT, text_color=TEXT_SUB).pack(anchor="w", pady=(2, 0))
 
-        # 파일 드롭 및 추가 영역 (1번 탭과 동일)
         self.drop_card = ctk.CTkFrame(self, height=130, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR, cursor="hand2")
         self.drop_card.pack(fill="x", pady=(0, 16))
         self.drop_card.pack_propagate(False)
 
-        lbl1 = ctk.CTkLabel(self.drop_card, text="+  화질을 높일 이미지 파일 추가하기 (클릭 또는 드래그 앤 드롭)", font=("맑은 고딕", 15, "bold"), text_color=TEXT_MAIN)
+        lbl1 = ctk.CTkLabel(self.drop_card, text="+  화질을 높일 이미지 파일 추가하기 (클릭 또는 드래그 앤 드롭)", font=FONT_CARD_TITLE, text_color=TEXT_MAIN)
         lbl1.pack(pady=(22, 4))
         lbl2 = ctk.CTkLabel(self.drop_card, text="여러 폴더의 이미지를 나눠서 추가할 수 있으며, 아래 배지를 누르면 개별 취소할 수 있습니다", font=FONT_DEFAULT, text_color=TEXT_SUB)
         lbl2.pack()
@@ -151,20 +230,17 @@ class TabUpscale(ctk.CTkFrame):
         up_grid.pack(fill="x", pady=(0, 14))
         up_grid.grid_columnconfigure((0, 1), weight=1)
 
-        # ==========================================
-        # 좌측 카드: 엔진 및 유형 선택
-        # ==========================================
         up_left = ctk.CTkFrame(up_grid, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR)
         up_left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
 
         ctk.CTkLabel(up_left, text="AI UPSCALE ENGINE", font=("맑은 고딕", 10, "bold"), text_color=ACCENT).pack(anchor="w", padx=18, pady=(16, 2))
-        ctk.CTkLabel(up_left, text="복원 엔진 선택", font=FONT_CARD_TITLE, text_color=TEXT_MAIN).pack(anchor="w", padx=18, pady=(0, 12))
+        ctk.CTkLabel(up_left, text="AI 처리 모델", font=FONT_CARD_TITLE, text_color=TEXT_MAIN).pack(anchor="w", padx=18, pady=(0, 12))
 
         engine_row = ctk.CTkFrame(up_left, fg_color="transparent")
         engine_row.pack(fill="x", padx=18, pady=(0, 16))
         engine_row.grid_columnconfigure((0, 1), weight=1, uniform="up_engine")
 
-        for idx, e_name in enumerate(["고속 선명화", "정밀 AI 복원"]):
+        for idx, e_name in enumerate(["기본 선명화 (빠름)", "고화질 복원 (정밀)"]):
             btn = ctk.CTkButton(
                 engine_row, text=e_name, height=36, corner_radius=6,
                 font=FONT_DEFAULT_BOLD,
@@ -173,20 +249,15 @@ class TabUpscale(ctk.CTkFrame):
             padx = (0, 4) if idx == 0 else (4, 0)
             btn.grid(row=0, column=idx, sticky="ew", padx=padx)
             self.engine_btns[e_name] = btn
-            # [신규] 툴팁 추가
-            ToolTip(
-                btn,
-                "• 고속 선명화: 가벼운 알고리즘으로 빠르게 해상도를 높입니다. (저사양 추천)\n"
-                "• 정밀 AI 복원: 딥러닝 기반으로 픽셀을 정교하게 재창조합니다. (고품질)" if e_name == "정밀 AI 복원" else "• 고속 선명화: 가벼운 알고리즘으로 빠르게 해상도를 높입니다. (저사양 추천)\n• 정밀 AI 복원: 딥러닝 기반으로 픽셀을 정교하게 재창조합니다. (고품질)"
-            )
+            ToolTip(btn, "가벼운 알고리즘으로 빠르게 해상도를 높입니다." if e_name == "기본 선명화 (빠름)" else "딥러닝 기반으로 픽셀을 정교하게 재창조합니다.")
 
-        ctk.CTkLabel(up_left, text="이미지 유형 최적화", font=FONT_DEFAULT, text_color=TEXT_SUB).pack(anchor="w", padx=18, pady=(0, 6))
+        ctk.CTkLabel(up_left, text="이미지 특성", font=FONT_DEFAULT, text_color=TEXT_SUB).pack(anchor="w", padx=18, pady=(0, 6))
         
         type_row = ctk.CTkFrame(up_left, fg_color="transparent")
         type_row.pack(fill="x", padx=18, pady=(0, 18))
         type_row.grid_columnconfigure((0, 1), weight=1, uniform="up_type")
 
-        for idx, t_name in enumerate(["실사 사진", "일러스트 / 그래픽"]):
+        for idx, t_name in enumerate(["사진", "일러스트"]):
             btn = ctk.CTkButton(
                 type_row, text=t_name, height=34, corner_radius=6,
                 font=FONT_SMALL_BOLD,
@@ -195,27 +266,19 @@ class TabUpscale(ctk.CTkFrame):
             padx = (0, 4) if idx == 0 else (4, 0)
             btn.grid(row=0, column=idx, sticky="ew", padx=padx)
             self.type_btns[t_name] = btn
-            # [신규] 툴팁 추가
-            ToolTip(
-                btn,
-                "• 실사 사진: 풍경, 인물, 상품 등 자연스러운 질감 표현에 최적화됩니다.\n"
-                "• 일러스트 / 그래픽: 선이 뚜렷한 만화, 애니메이션, 2D 그래픽에 최적화됩니다." if t_name == "일러스트 / 그래픽" else "• 실사 사진: 풍경, 인물, 상품 등 자연스러운 질감 표현에 최적화됩니다.\n• 일러스트 / 그래픽: 선이 뚜렷한 만화, 애니메이션, 2D 그래픽에 최적화됩니다."
-            )
+            ToolTip(btn, "풍경, 인물 등 자연스러운 질감 표현에 최적화됩니다." if t_name == "사진" else "선이 뚜렷한 2D 그래픽에 최적화됩니다.")
 
-        # ==========================================
-        # 우측 카드: 배율 및 스위치
-        # ==========================================
         up_right = ctk.CTkFrame(up_grid, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR)
         up_right.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
 
         ctk.CTkLabel(up_right, text="RESOLUTION & DETAIL", font=("맑은 고딕", 10, "bold"), text_color=ACCENT).pack(anchor="w", padx=18, pady=(16, 2))
-        ctk.CTkLabel(up_right, text="확대 배율", font=FONT_CARD_TITLE, text_color=TEXT_MAIN).pack(anchor="w", padx=18, pady=(0, 12))
+        ctk.CTkLabel(up_right, text="해상도 확대", font=FONT_CARD_TITLE, text_color=TEXT_MAIN).pack(anchor="w", padx=18, pady=(0, 12))
 
         scale_row = ctk.CTkFrame(up_right, fg_color="transparent")
         scale_row.pack(fill="x", padx=18, pady=(0, 16))
         scale_row.grid_columnconfigure((0, 1), weight=1, uniform="up_scale")
 
-        for idx, s_name in enumerate(["2배 (2x)", "4배 (4x · 4K급)"]):
+        for idx, s_name in enumerate(["2x", "4x"]):
             btn = ctk.CTkButton(
                 scale_row, text=s_name, height=36, corner_radius=6,
                 font=FONT_DEFAULT_BOLD,
@@ -224,13 +287,12 @@ class TabUpscale(ctk.CTkFrame):
             padx = (0, 4) if idx == 0 else (4, 0)
             btn.grid(row=0, column=idx, sticky="ew", padx=padx)
             self.scale_btns[s_name] = btn
-            # [신규] 툴팁 추가
-            ToolTip(btn, f"원본 해상도의 가로/세로를 각각 {s_name.split('배')[0]}배(면적 기준 {int(s_name.split('배')[0])**2}배)로 확대합니다.")
+            ToolTip(btn, f"원본 해상도의 가로/세로를 각각 {s_name.split('x')[0]}배로 확대합니다.")
 
-        ctk.CTkLabel(up_right, text="후보정 옵션", font=FONT_DEFAULT, text_color=TEXT_SUB).pack(anchor="w", padx=18, pady=(0, 6))
+        ctk.CTkLabel(up_right, text="내보내기 설정", font=FONT_DEFAULT, text_color=TEXT_SUB).pack(anchor="w", padx=18, pady=(0, 6))
 
         self.denoise_sw = ctk.CTkSwitch(
-            up_right, text="JPG 손상/노이즈 부드럽게 제거", font=FONT_DEFAULT, 
+            up_right, text="압축 노이즈 감소", font=FONT_DEFAULT, 
             text_color=TEXT_MAIN, progress_color=ACCENT
         )
         self.denoise_sw.select()
@@ -238,16 +300,13 @@ class TabUpscale(ctk.CTkFrame):
         ToolTip(self.denoise_sw, "인터넷에서 다운로드한 이미지 특유의 자글자글한 압축 노이즈(블록 현상)를 매끄럽게 폅니다.")
 
         self.sharpen_sw = ctk.CTkSwitch(
-            up_right, text="외곽선 뚜렷하게 (샤프닝 적용)", font=FONT_DEFAULT, 
+            up_right, text="윤곽선 선명하게", font=FONT_DEFAULT, 
             text_color=TEXT_MAIN, progress_color=ACCENT
         )
         self.sharpen_sw.select()
         self.sharpen_sw.pack(anchor="w", padx=18, pady=(4, 16))
         ToolTip(self.sharpen_sw, "뿌옇게 흐려진 경계선을 더욱 또렷하고 선명하게 강조합니다.")
 
-        # ==========================================
-        # 하단 액션 버튼 영역 (1번 탭과 동일한 분할 구조 적용)
-        # ==========================================
         self.bottom_action_box = ctk.CTkFrame(self, fg_color="transparent")
         self.bottom_action_box.pack(fill="x", side="bottom")
         self.bottom_action_box.grid_columnconfigure(0, weight=1)
@@ -257,22 +316,19 @@ class TabUpscale(ctk.CTkFrame):
             self.bottom_action_box, text="결과 미리보기", height=48, corner_radius=10,
             font=FONT_CARD_TITLE, fg_color=BG_CARD, hover_color=BORDER_COLOR,
             text_color=TEXT_MAIN, border_width=1, border_color=BORDER_COLOR,
-            command=self.show_placeholder_msg
+            command=lambda: self.start_upscale(True)
         )
         self.up_preview_btn.grid(row=0, column=0, sticky="ew", padx=(0, 8))
 
         self.up_run_btn = ctk.CTkButton(
-            self.bottom_action_box, text="AI 화질 복원 및 확대 시작", height=48, corner_radius=10,
-            font=("맑은 고딕", 15, "bold"), fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            text_color="#FFFFFF", command=self.show_placeholder_msg
+            self.bottom_action_box, text="업스케일링 시작", height=48, corner_radius=10,
+            font=FONT_CARD_TITLE, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            text_color="#FFFFFF", command=lambda: self.start_upscale(False)
         )
         self.up_run_btn.grid(row=0, column=1, sticky="ew", padx=(8, 0))
 
         self.update_button_styles()
 
-    # ==========================================
-    # 상호작용 및 UI 제어 로직
-    # ==========================================
     def set_engine(self, name):
         self.selected_engine = name
         self.update_button_styles()
@@ -294,7 +350,7 @@ class TabUpscale(ctk.CTkFrame):
         
         for name, btn in self.type_btns.items():
             if name == self.selected_type:
-                btn.configure(fg_color="#32384D", text_color="#FFFFFF", hover_color="#3E455E", border_width=0)
+                btn.configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER, border_width=0)
             else:
                 btn.configure(fg_color=BG_INNER, text_color=TEXT_SUB, hover_color=BORDER_COLOR, border_width=1, border_color=BORDER_COLOR)
 
@@ -304,9 +360,6 @@ class TabUpscale(ctk.CTkFrame):
             else:
                 btn.configure(fg_color=BG_INNER, text_color=TEXT_SUB, hover_color=BORDER_COLOR, border_width=1, border_color=BORDER_COLOR)
 
-    # ==========================================
-    # 파일 추가 및 리스트 관리 로직 (1번 탭과 완벽 동일)
-    # ==========================================
     def refresh_file_badge(self):
         if self.file_warn_timer:
             self.after_cancel(self.file_warn_timer)
@@ -403,14 +456,55 @@ class TabUpscale(ctk.CTkFrame):
 
     def select_up_files(self):
         files = filedialog.askopenfilenames(
-            title="업스케일링할 이미지 추가 선택 (여러 폴더에서 반복 추가 가능)",
+            title="업스케일링할 이미지 추가 선택",
             filetypes=[("이미지 파일", "*.png;*.jpg;*.jpeg;*.webp;*.bmp"), ("모든 파일", "*.*")]
         )
         if files:
             self.add_up_files(list(files))
 
-    def show_placeholder_msg(self):
+    def start_upscale(self, open_preview=False):
         if not self.up_file_list:
-            self.show_file_card_warning("! 먼저 작업할 이미지 파일을 선택해주세요")
-            return
-        messagebox.showinfo("안내", "UI 뼈대 이식이 완료되었습니다!\n(백엔드 엔진 연결 및 미리보기 기능은 추후 구현됩니다.)")
+            return self.show_file_card_warning("! 먼저 작업할 이미지 파일을 선택해주세요")
+            
+        self.app.engine_dot.configure(text="● 업스케일 연산 중...", text_color=WARN_COLOR)
+        file_names = [os.path.basename(p) for p in self.up_file_list]
+        self.app.floating_prog.start(file_names)
+
+        def worker():
+            preview_items = []
+            last_dir = ""
+            try:
+                for idx, fpath in enumerate(self.up_file_list, start=1):
+                    def cb(msg, ratio, i=idx):
+                        self.after(0, lambda: self.app.floating_prog.update_state(i, len(self.up_file_list), ratio))
+                        
+                    orig_pil = Image.open(fpath).convert("RGB")
+                    
+                    target_engine = "고속 선명화" if self.selected_engine == "기본 선명화 (빠름)" else "정밀 AI 복원"
+                    target_type = "일러스트 / 그래픽" if self.selected_type == "일러스트" else "실사 사진"
+                    
+                    res_pil = engine_upscale.process_upscale_to_memory(
+                        image_path=fpath, engine=target_engine, img_type=target_type,
+                        scale=self.selected_scale, denoise=bool(self.denoise_sw.get()), 
+                        sharpen=bool(self.sharpen_sw.get()), progress_callback=cb
+                    )
+                    
+                    if open_preview:
+                        preview_items.append({"path": fpath, "orig_img": orig_pil, "res_img": res_pil})
+                    else:
+                        last_dir, _ = engine_upscale.save_upscaled_image(res_pil, fpath, self.app.settings.get("custom_out_dir", ""))
+                        
+                self.after(0, lambda: self.on_complete(preview_items, last_dir))
+            except Exception as e:
+                self.after(0, lambda err=str(e): messagebox.showerror("오류", err))
+                
+        threading.Thread(target=worker, daemon=True).start()
+
+    def on_complete(self, preview_items, last_dir):
+        self.app.floating_prog.stop()
+        self.app.engine_dot.configure(text="● Modular Engine Ready", text_color=SUCCESS_COLOR)
+        if preview_items:
+            UpPreviewWindow(self, preview_items)
+        else:
+            messagebox.showinfo("완료", "업스케일링 및 저장이 완료되었습니다.")
+            if self.app.settings.get("auto_open_folder", True) and last_dir: os.startfile(last_dir)
