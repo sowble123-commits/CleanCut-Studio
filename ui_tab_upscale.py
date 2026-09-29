@@ -116,7 +116,10 @@ class UpPreviewWindow(ctk.CTkToplevel):
         self.title("업스케일링 결과 미리보기")
         self.geometry("1000x720")
         self.resizable(True, True)
-        self.transient(self.app)
+        self.lift()               
+        self.focus_force()
+        self.after(10, lambda: self.attributes("-topmost", True))
+        self.after(200, lambda: self.attributes("-topmost", False))
         self.configure(fg_color=BG_MAIN)
         self.build_ui()
         self.load_item()
@@ -230,7 +233,7 @@ class TabUpscale(ctk.CTkFrame):
 
         lbl1 = ctk.CTkLabel(self.drop_card, text="+  화질을 높일 이미지 파일 추가하기 (클릭 또는 드래그 앤 드롭)", font=FONT_CARD_TITLE, text_color=TEXT_MAIN)
         lbl1.pack(pady=(22, 4))
-        lbl2 = ctk.CTkLabel(self.drop_card, text="여러 폴더의 이미지들을 나눠서 추가할 수 있으며, 아래 배지를 누르면 개별 취소할 수 있습니다", font=FONT_DEFAULT, text_color=TEXT_SUB)
+        lbl2 = ctk.CTkLabel(self.drop_card, text="여러 폴더의 이미지를 나눠서 추가할 수 있으며, 아래 배지를 누르면 개별 취소할 수 있습니다", font=FONT_DEFAULT, text_color=TEXT_SUB)
         lbl2.pack()
 
         self.file_badge = ctk.CTkButton(
