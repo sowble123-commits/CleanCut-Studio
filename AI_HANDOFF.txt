@@ -1,0 +1,1910 @@
+=== CleanCut Studio Pro - AI 인수인계 마스터 문서 ===
+생성 일시: 2026-09-29 13:34:32
+
+=== [1] 현재 프로젝트 파일 구조 ===
+    📄 engine_bg.py
+    📄 main.py
+    📄 make_samples.py
+    📄 settings.json
+    📄 샘플1_단색배경_강도테스트.png
+    📄 샘플2_복잡한배경_AI누끼_지우개테스트.jpg
+    📄 인수인계서_업데이트.bat
+
+
+=== [2] 전체 소스 코드 상세 ===
+
+
+============================================================
+📁 FILE: engine_bg.py
+============================================================
+import os
+from PIL import Image, ImageDraw, ImageFilter
+
+def get_unique_filepath(out_dir, base_name, suffix, ext):
+    """동일한 파일명이 존재할 경우 (1), (2) 번호를 붙여 덮어쓰기를 방지합니다."""
+    filename = f"{base_name}{suffix}.{ext}"
+    full_path = os.path.join(out_dir, filename)
+    if not os.path.exists(full_path):
+        return full_path
+
+    counter = 1
+    while True:
+        filename = f"{base_name}{suffix} ({counter}).{ext}"
+        full_path = os.path.join(out_dir, filename)
+        if not os.path.exists(full_path):
+            return full_path
+        counter += 1
+
+
+def process_image_to_memory(
+    image_path,
+    mode="단색 배경",
+    strength="표준",
+    auto_crop=False,
+    make_square=False,
+    progress_callback=None
+):
+    """원본 이미지를 받아 배경 제거 및 다듬기를 수행한 뒤 PIL Image 객체(메모리)로 반환합니다."""
+    def report(msg, ratio):
+        if progress_callback:
+            progress_callback(msg, ratio)
+
+    report("원본 이미지 불러오는 중...", 0.15)
+    im = Image.open(image_path).convert("RGBA")
+    w0, h0 = im.size
+
+    # 1. 배경 제거 방식 실행 (기존 호환 포함)
+    if mode in ("일반 사진", "AI 정밀 누끼"):
+        report("정밀 배경 제거 엔진 작동 중...", 0.35)
+        try:
+            from rembg import remove
+            im = remove(im)
+        except ImportError:
+            raise RuntimeError(
+                "정밀 배경 제거 도구(rembg)가 설치되지 않았습니다.\n"
+                "pip install rembg onnxruntime 명령어를 실행해주세요."
+            )
+    else:
+        report("단색 배경 스캔 및 투명화 중...", 0.4)
+        thresh_map = {
+            "낮음": 35,
+            "표준": 75,
+            "높음": 115,
+            # 기존 명칭 호환
+            "약하게 (보호)": 35,
+            "표준 (권장)": 75,
+            "강하게 (절삭)": 115
+        }
+        thresh_val = thresh_map.get(strength, 75)
+
+        corners = [(0, 0), (w0 - 1, 0), (0, h0 - 1), (w0 - 1, h0 - 1)]
+        for c in corners:
+            px = im.getpixel(c)
+            if px[3] > 0:
+                ImageDraw.floodfill(im, c, (0, 0, 0, 0), thresh=thresh_val)
+
+    # 2. 빈 여백 자동 자르기
+    report("여백 및 비율 다듬는 중...", 0.75)
+    if auto_crop:
+        bbox = im.getbbox()
+        if bbox:
+            im = im.crop(bbox)
+
+    # 3. 1:1 정사각형 맞춤
+    if make_square:
+        w, h = im.size
+        m = max(w, h)
+        sq = Image.new("RGBA", (m, m), (0, 0, 0, 0))
+        sq.paste(im, ((m - w) // 2, (m - h) // 2))
+        im = sq
+
+    report("이미지 처리 완료!", 1.0)
+    return im
+
+
+def save_processed_image(
+    pil_image,
+    original_path,
+    formats=None,
+    custom_out_dir="",
+    filename_suffix="_cut"
+):
+    """처리된 PIL Image 객체를 선택된 확장자들로 저장하며 중복 시 (1), (2)를 붙입니다."""
+    if formats is None:
+        formats = ["PNG"]
+
+    src_dir = os.path.dirname(original_path)
+    base_name = os.path.splitext(os.path.basename(original_path))[0]
+
+    if custom_out_dir and os.path.isdir(custom_out_dir):
+        out_dir = custom_out_dir
+    else:
+        out_dir = os.path.join(src_dir, "CleanCut_결과물")
+    os.makedirs(out_dir, exist_ok=True)
+
+    saved_files = []
+    im = pil_image
+
+    if "PNG" in formats:
+        out_png = get_unique_filepath(out_dir, base_name, filename_suffix, "png")
+        im.save(out_png, format="PNG")
+        saved_files.append(out_png)
+
+    if "WEBP" in formats:
+        out_webp = get_unique_filepath(out_dir, base_name, filename_suffix, "webp")
+        im.save(out_webp, format="WEBP", quality=95)
+        saved_files.append(out_webp)
+
+    if "ICO" in formats:
+        w, h = im.size
+        m = max(w, h)
+        ico_sq = Image.new("RGBA", (m, m), (0, 0, 0, 0))
+        ico_sq.paste(im, ((m - w) // 2, (m - h) // 2))
+
+        sz = [256, 128, 64, 48, 32, 24, 16]
+        fr = [
+            ico_sq.resize((s, s), Image.Resampling.LANCZOS).filter(
+                ImageFilter.UnsharpMask(0.8, 130, 2)
+            )
+            for s in sz
+        ]
+        out_ico = get_unique_filepath(out_dir, base_name, filename_suffix, "ico")
+        fr[0].save(out_ico, format="ICO", sizes=[(s, s) for s in sz], append_images=fr[1:])
+        saved_files.append(out_ico)
+
+    if "JPG" in formats:
+        bg_white = Image.new("RGB", im.size, (255, 255, 255))
+        bg_white.paste(im, mask=im.split()[3])
+        out_jpg = get_unique_filepath(out_dir, base_name, filename_suffix, "jpg")
+        bg_white.save(out_jpg, format="JPG", quality=95)
+        saved_files.append(out_jpg)
+
+    return out_dir, saved_files
+
+
+def remove_background_single(
+    image_path,
+    mode="단색 배경",
+    strength="표준",
+    auto_crop=False,
+    make_square=False,
+    formats=None,
+    progress_callback=None,
+    custom_out_dir="",
+    filename_suffix="_cut"
+):
+    """단일 이미지를 즉시 변환하고 파일로 저장합니다."""
+    def sub_cb(msg, r):
+        if progress_callback:
+            progress_callback(msg, r * 0.85)
+
+    im = process_image_to_memory(
+        image_path=image_path,
+        mode=mode,
+        strength=strength,
+        auto_crop=auto_crop,
+        make_square=make_square,
+        progress_callback=sub_cb
+    )
+    if progress_callback:
+        progress_callback("선택한 확장자로 파일 저장 중...", 0.92)
+
+    out_dir, saved = save_processed_image(
+        pil_image=im,
+        original_path=image_path,
+        formats=formats,
+        custom_out_dir=custom_out_dir,
+        filename_suffix=filename_suffix
+    )
+    if progress_callback:
+        progress_callback("완료!", 1.0)
+    return out_dir, saved
+
+============================================================
+📁 FILE: main.py
+============================================================
+import os
+import json
+import threading
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from PIL import Image, ImageDraw
+import customtkinter as ctk
+
+# 윈도우 탐색기 마우스 드래그 앤 드롭 지원 (미설치 시에도 에러 없이 작동)
+try:
+    import windnd
+except ImportError:
+    windnd = None
+
+import engine_bg
+
+SETTINGS_FILE = "settings.json"
+
+# 다크/화이트 모드 모두 대응하는 튜플 컬러 팔레트 (Light, Dark)
+BG_MAIN = ("#F3F4F6", "#0B0C10")
+BG_SIDEBAR = ("#FFFFFF", "#11131A")
+BG_CARD = ("#FFFFFF", "#161922")
+BG_INNER = ("#F1F5F9", "#0F1117")
+BORDER_COLOR = ("#E2E8F0", "#262936")
+ACCENT = "#5E6AD2"
+ACCENT_HOVER = "#4E5AC0"
+TEXT_MAIN = ("#111827", "#F3F4F6")
+TEXT_SUB = ("#64748B", "#8A8F98")
+ERROR_COLOR = "#EF4444"
+SUCCESS_COLOR = "#10B981"
+WARN_COLOR = "#F59E0B"
+
+
+# ==========================================
+# 마우스 호버 시 1초 뒤 나타나는 툴팁(말풍선)
+# ==========================================
+class ToolTip:
+    def __init__(self, widget, text, delay=1000):
+        self.widget = widget
+        self.text = text
+        self.delay = delay
+        self.tip_window = None
+        self.after_id = None
+
+        # CTkSegmentedButton 등 내부 버튼 딕셔너리가 있는 위젯은 개별 버튼에 바인딩하여 NotImplementedError 방지
+        if hasattr(self.widget, "_buttons_dict"):
+            targets = list(self.widget._buttons_dict.values())
+        else:
+            targets = [self.widget]
+
+        for t in targets:
+            try:
+                t.bind("<Enter>", self.schedule_show, add="+")
+                t.bind("<Leave>", self.hide_tip, add="+")
+                t.bind("<ButtonPress>", self.hide_tip, add="+")
+            except NotImplementedError:
+                pass
+
+    def schedule_show(self, event=None):
+        self.cancel_schedule()
+        self.after_id = self.widget.after(self.delay, self.show_tip)
+
+    def cancel_schedule(self):
+        if self.after_id:
+            self.widget.after_cancel(self.after_id)
+            self.after_id = None
+
+    def show_tip(self):
+        if self.tip_window or not self.text:
+            return
+        x = self.widget.winfo_rootx() + 16
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 6
+        self.tip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        tw.attributes("-topmost", True)
+
+        frame = tk.Frame(tw, background="#1E2230", highlightbackground="#5E6AD2", highlightthickness=1, bd=0)
+        frame.pack()
+        lbl = tk.Label(
+            frame, text=self.text, justify="left", background="#1E2230",
+            foreground="#F3F4F6", font=("맑은 고딕", 10), padx=10, pady=6
+        )
+        lbl.pack()
+
+    def hide_tip(self, event=None):
+        self.cancel_schedule()
+        if self.tip_window:
+            self.tip_window.destroy()
+            self.tip_window = None
+
+
+# ==========================================
+# 우측 하단 플로팅 진행률 바 + 호버 대기열 현황판 (깜빡임 & 렉 완벽 해결)
+# ==========================================
+class FloatingProgressWidget:
+    def __init__(self, parent_window):
+        self.parent = parent_window
+        self.is_active = False
+        self.is_hovered = False
+        self.hide_job = None
+        self.spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        self.spinner_idx = 0
+        self.summary_text = "변환 준비 중..."
+        self.pct = 0
+        self.queue_items = []  # [{"name": str, "status": "wait"|"proc"|"done", "pct": int}]
+        self.row_widgets = []  # 위젯을 매번 부수지 않고 재사용하기 위한 캐시
+
+        # 메인 플로팅 캡슐 (우측 하단)
+        self.capsule = ctk.CTkFrame(
+            self.parent, width=265, height=56, corner_radius=12,
+            fg_color=("#1E293B", "#1A1D29"), border_width=1, border_color=ACCENT
+        )
+        self.capsule.pack_propagate(False)
+
+        top_row = ctk.CTkFrame(self.capsule, fg_color="transparent")
+        top_row.pack(fill="x", padx=14, pady=(10, 4))
+        self.lbl_summary = ctk.CTkLabel(top_row, text="⠋ 변환 중...", font=("맑은 고딕", 12, "bold"), text_color="#F3F4F6")
+        self.lbl_summary.pack(side="left")
+        self.lbl_pct = ctk.CTkLabel(top_row, text="0%", font=("맑은 고딕", 12, "bold"), text_color=ACCENT)
+        self.lbl_pct.pack(side="right")
+
+        self.pbar = ctk.CTkProgressBar(self.capsule, height=6, corner_radius=3, fg_color="#0F1117", progress_color=ACCENT)
+        self.pbar.set(0)
+        self.pbar.pack(fill="x", padx=14, pady=(0, 10))
+
+        # 마우스 올렸을 때 위로 펼쳐지는 대기열 현황판
+        self.popup = ctk.CTkFrame(
+            self.parent, width=265, corner_radius=12,
+            fg_color=("#1E293B", "#141722"), border_width=1, border_color="#32384D"
+        )
+        ctk.CTkLabel(
+            self.popup, text="작업 대기열 현황", font=("맑은 고딕", 11, "bold"), text_color="#8A8F98"
+        ).pack(anchor="w", padx=14, pady=(10, 4))
+
+        self.list_frame = ctk.CTkFrame(self.popup, fg_color="transparent")
+        self.list_frame.pack(fill="x", padx=12, pady=(0, 10))
+        self.more_label = None
+
+        for w in [self.capsule, top_row, self.lbl_summary, self.lbl_pct, self.pbar, self.popup, self.list_frame]:
+            w.bind("<Enter>", self.on_enter, add="+")
+            w.bind("<Leave>", self.on_leave, add="+")
+
+    def _is_pointer_inside(self, widget):
+        """마우스 커서가 실제로 해당 위젯 사각형 영역 안에 있는지 좌표로 확인하여 깜빡임 원천 차단"""
+        try:
+            if not widget.winfo_ismapped():
+                return False
+            px, py = widget.winfo_pointerxy()
+            wx, wy = widget.winfo_rootx(), widget.winfo_rooty()
+            ww, wh = widget.winfo_width(), widget.winfo_height()
+            return (wx <= px <= wx + ww) and (wy <= py <= wy + wh)
+        except Exception:
+            return False
+
+    def on_enter(self, event=None):
+        if not self.is_active:
+            return
+        if self.hide_job:
+            self.parent.after_cancel(self.hide_job)
+            self.hide_job = None
+        if not self.is_hovered:
+            self.is_hovered = True
+            self.update_popup_labels()
+            self.popup.place(relx=1.0, rely=1.0, x=-20, y=-82, anchor="se")
+            self.popup.lift()
+
+    def on_leave(self, event=None):
+        if self.hide_job:
+            self.parent.after_cancel(self.hide_job)
+        self.hide_job = self.parent.after(80, self._check_mouse_really_left)
+
+    def _check_mouse_really_left(self):
+        self.hide_job = None
+        if self._is_pointer_inside(self.capsule) or self._is_pointer_inside(self.popup):
+            return
+        self.is_hovered = False
+        self.popup.place_forget()
+
+    def _build_popup_rows_once(self):
+        """작업 시작 시 딱 한 번만 대기열 라벨 위젯들을 생성합니다 (반복 destroy로 인한 렉 제거)."""
+        for child in self.list_frame.winfo_children():
+            child.destroy()
+        self.row_widgets.clear()
+
+        for item in self.queue_items[:8]:
+            row = ctk.CTkFrame(self.list_frame, fg_color="transparent")
+            row.pack(fill="x", pady=2)
+            lbl_left = ctk.CTkLabel(row, text="", font=("맑은 고딕", 11), text_color="#8A8F98")
+            lbl_left.pack(side="left")
+            lbl_right = ctk.CTkLabel(row, text="", font=("맑은 고딕", 11, "bold"), text_color="#8A8F98")
+            lbl_right.pack(side="right")
+
+            for w in (row, lbl_left, lbl_right):
+                w.bind("<Enter>", self.on_enter, add="+")
+                w.bind("<Leave>", self.on_leave, add="+")
+
+            self.row_widgets.append((lbl_left, lbl_right))
+
+        if len(self.queue_items) > 8:
+            self.more_label = ctk.CTkLabel(
+                self.list_frame, text=f"...외 {len(self.queue_items) - 8}개 파일",
+                font=("맑은 고딕", 10), text_color="#8A8F98"
+            )
+            self.more_label.pack(anchor="e", pady=(2, 0))
+
+    def update_popup_labels(self):
+        """위젯을 새로 만들지 않고 기존 라벨의 글자와 색상만 변경합니다."""
+        sp = self.spinner_frames[self.spinner_idx % len(self.spinner_frames)]
+        for idx, (lbl_left, lbl_right) in enumerate(self.row_widgets):
+            if idx >= len(self.queue_items):
+                break
+            item = self.queue_items[idx]
+            name_short = item["name"] if len(item["name"]) <= 18 else item["name"][:15] + "..."
+            if item["status"] == "done":
+                icon, col, right_txt = "✔", SUCCESS_COLOR, "완료"
+            elif item["status"] == "proc":
+                icon, col, right_txt = sp, "#F3F4F6", f"{item['pct']}%"
+            else:
+                icon, col, right_txt = "⏳", "#8A8F98", "대기 중"
+
+            lbl_left.configure(text=f"{icon}  {name_short}", text_color=col)
+            lbl_right.configure(text=right_txt, text_color=col)
+
+    def start(self, file_names):
+        self.queue_items = [{"name": fn, "status": "wait", "pct": 0} for fn in file_names]
+        self._build_popup_rows_once()
+        self.is_active = True
+        self.pct = 2
+        self.pbar.set(0.02)
+        self.capsule.place(relx=1.0, rely=1.0, x=-20, y=-20, anchor="se")
+        self.capsule.lift()
+        self.animate()
+
+    def update_state(self, current_idx, total, step_ratio):
+        for i, item in enumerate(self.queue_items):
+            if i < current_idx - 1:
+                item["status"] = "done"
+                item["pct"] = 100
+            elif i == current_idx - 1:
+                item["status"] = "proc"
+                item["pct"] = int(step_ratio * 100)
+            else:
+                item["status"] = "wait"
+                item["pct"] = 0
+
+        overall = ((current_idx - 1) + step_ratio) / max(1, total)
+        self.pct = int(overall * 100)
+        self.summary_text = f"변환 진행 중 ({current_idx}/{total})"
+        self.pbar.set(overall)
+        if self.is_hovered:
+            self.update_popup_labels()
+
+    def animate(self):
+        if not self.is_active:
+            return
+        sp = self.spinner_frames[self.spinner_idx % len(self.spinner_frames)]
+        self.spinner_idx += 1
+        self.lbl_summary.configure(text=f"{sp}  {self.summary_text}")
+        self.lbl_pct.configure(text=f"{self.pct}%")
+        if self.is_hovered:
+            self.update_popup_labels()
+        self.parent.after(100, self.animate)
+
+    def stop(self):
+        self.is_active = False
+        self.is_hovered = False
+        if self.hide_job:
+            self.parent.after_cancel(self.hide_job)
+            self.hide_job = None
+        self.popup.place_forget()
+        self.capsule.place_forget()
+
+
+# ==========================================
+# 현재 선택된 파일 목록 확인 및 개별 취소 모달 창
+# ==========================================
+class FileListModal(ctk.CTkToplevel):
+    def __init__(self, master_app):
+        super().__init__(master_app)
+        self.app = master_app
+        self.title("현재 선택된 파일 관리")
+        self.geometry("520x420")
+        self.resizable(False, False)
+        self.configure(fg_color=BG_MAIN)
+        self.transient(master_app)
+        self.grab_set()
+
+        top_bar = ctk.CTkFrame(self, height=52, corner_radius=0, fg_color=BG_SIDEBAR, border_width=1, border_color=BORDER_COLOR)
+        top_bar.pack(fill="x")
+        top_bar.pack_propagate(False)
+
+        self.lbl_title = ctk.CTkLabel(top_bar, text="", font=("맑은 고딕", 14, "bold"), text_color=TEXT_MAIN)
+        self.lbl_title.pack(side="left", padx=20)
+
+        ctk.CTkButton(
+            top_bar, text="전체 비우기", width=86, height=28, corner_radius=6,
+            fg_color="transparent", border_width=1, border_color=ERROR_COLOR,
+            text_color=ERROR_COLOR, hover_color=("#FEE2E2", "#2A1519"),
+            font=("맑은 고딕", 11, "bold"), command=self.clear_all
+        ).pack(side="right", padx=20)
+
+        self.scroll_box = ctk.CTkScrollableFrame(self, corner_radius=10, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR)
+        self.scroll_box.pack(fill="both", expand=True, padx=20, pady=16)
+
+        bot_bar = ctk.CTkFrame(self, fg_color="transparent")
+        bot_bar.pack(fill="x", padx=20, pady=(0, 16))
+
+        ctk.CTkButton(
+            bot_bar, text="+ 파일 더 추가하기", height=38, corner_radius=8,
+            fg_color=BG_CARD, hover_color=BORDER_COLOR, text_color=TEXT_MAIN,
+            border_width=1, border_color=BORDER_COLOR, font=("맑은 고딕", 12, "bold"),
+            command=self.add_more_files
+        ).pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        ctk.CTkButton(
+            bot_bar, text="확인 (닫기)", height=38, corner_radius=8,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color="#FFFFFF",
+            font=("맑은 고딕", 12, "bold"), command=self.destroy
+        ).pack(side="right", fill="x", expand=True, padx=(6, 0))
+
+        self.render_list()
+
+    def render_list(self):
+        for child in self.scroll_box.winfo_children():
+            child.destroy()
+
+        count = len(self.app.bg_file_list)
+        self.lbl_title.configure(text=f"선택된 이미지 목록 ({count}개)")
+
+        if count == 0:
+            ctk.CTkLabel(
+                self.scroll_box, text="선택된 파일이 없습니다.",
+                font=("맑은 고딕", 12), text_color=TEXT_SUB
+            ).pack(pady=80)
+            return
+
+        for idx, fpath in enumerate(self.app.bg_file_list):
+            row = ctk.CTkFrame(self.scroll_box, corner_radius=8, fg_color=BG_INNER, height=42)
+            row.pack(fill="x", pady=3, padx=4)
+            row.pack_propagate(False)
+
+            fname = os.path.basename(fpath)
+            folder = os.path.basename(os.path.dirname(fpath))
+            display_txt = f"{idx + 1}.  {fname}   ({folder})"
+            if len(display_txt) > 45:
+                display_txt = display_txt[:42] + "..."
+
+            ctk.CTkLabel(row, text=display_txt, font=("맑은 고딕", 12), text_color=TEXT_MAIN).pack(side="left", padx=12)
+
+            ctk.CTkButton(
+                row, text="✕ 취소", width=56, height=26, corner_radius=6,
+                fg_color="transparent", hover_color=("#FEE2E2", "#2A1519"),
+                text_color=ERROR_COLOR, font=("맑은 고딕", 11, "bold"),
+                command=lambda p=fpath: self.remove_one(p)
+            ).pack(side="right", padx=8)
+
+    def remove_one(self, path_to_remove):
+        if path_to_remove in self.app.bg_file_list:
+            self.app.bg_file_list.remove(path_to_remove)
+            self.app.refresh_file_badge()
+            self.render_list()
+
+    def clear_all(self):
+        self.app.bg_file_list.clear()
+        self.app.refresh_file_badge()
+        self.destroy()
+
+    def add_more_files(self):
+        self.app.select_bg_files()
+        self.render_list()
+
+
+# ==========================================
+# 투명 격자무늬(체커보드) 합성 헬퍼 함수
+# ==========================================
+def create_checkerboard_preview(pil_rgba, box_size=(380, 360)):
+    """어떤 크기의 이미지든 비율을 유지하며 액자 크기에 맞추고 투명 배경에 격자무늬를 합성합니다."""
+    bw, bh = box_size
+    w, h = pil_rgba.size
+    scale = min(bw / max(1, w), bh / max(1, h))
+    nw, nh = max(1, int(w * scale)), max(1, int(h * scale))
+    resized = pil_rgba.resize((nw, nh), Image.Resampling.LANCZOS)
+
+    checker = Image.new("RGBA", (nw, nh), (255, 255, 255, 255))
+    draw = ImageDraw.Draw(checker)
+    step = 12
+    for y in range(0, nh, step):
+        for x in range(0, nw, step):
+            if (x // step + y // step) % 2 == 1:
+                draw.rectangle([x, y, min(x + step, nw), min(y + step, nh)], fill=(220, 224, 232, 255))
+
+    checker.alpha_composite(resized)
+    return checker, (nw, nh)
+
+
+# ==========================================
+# 결과 미리보기 및 개별 수정 새 창 (방법 2 적용)
+# ==========================================
+class PreviewWindow(ctk.CTkToplevel):
+    def __init__(self, master_app, items_data, active_formats):
+        super().__init__(master_app)
+        self.app = master_app
+        self.items = items_data
+        self.active_formats = active_formats
+        self.current_idx = 0
+        self.is_reprocessing = False
+        self.warn_timer = None
+
+        self.title("변환 결과 미리보기 및 개별 수정")
+        self.geometry("820x560")
+        self.resizable(False, False)
+        self.configure(fg_color=BG_MAIN)
+        self.transient(master_app)
+        self.grab_set()
+
+        self.floating_prog = FloatingProgressWidget(self)
+        self.build_ui()
+        self.load_current_item_to_ui()
+
+    def shake_window(self):
+        x = self.winfo_x()
+        y = self.winfo_y()
+        offsets = [-10, 10, -8, 8, -5, 5, -2, 2, 0]
+        for i, dx in enumerate(offsets):
+            self.after(i * 28, lambda new_x=x + dx: self.geometry(f"+{new_x}+{y}"))
+
+    def build_ui(self):
+        # 1. 상단 바: 파일 이름 + [● 저장됨] 배지 | 우측 [개별 저장] [삭제]
+        top_bar = ctk.CTkFrame(self, height=54, corner_radius=0, fg_color=BG_SIDEBAR, border_width=1, border_color=BORDER_COLOR)
+        top_bar.pack(fill="x")
+        top_bar.pack_propagate(False)
+
+        title_row = ctk.CTkFrame(top_bar, fg_color="transparent")
+        title_row.pack(side="left", padx=22)
+        self.lbl_filename = ctk.CTkLabel(title_row, text="", font=("맑은 고딕", 15, "bold"), text_color=TEXT_MAIN)
+        self.lbl_filename.pack(side="left")
+        self.lbl_saved_badge = ctk.CTkLabel(
+            title_row, text=" ● 저장됨 ", font=("맑은 고딕", 11, "bold"),
+            text_color=SUCCESS_COLOR, fg_color=("#DCFCE7", "#132A22"), corner_radius=6
+        )
+
+        btn_row = ctk.CTkFrame(top_bar, fg_color="transparent")
+        btn_row.pack(side="right", padx=22)
+        self.btn_delete = ctk.CTkButton(
+            btn_row, text="삭제", width=68, height=32, corner_radius=6,
+            fg_color="transparent", border_width=1, border_color=ERROR_COLOR,
+            text_color=ERROR_COLOR, hover_color=("#FEE2E2", "#2A1519"),
+            font=("맑은 고딕", 12, "bold"), command=self.delete_current_item
+        )
+        self.btn_delete.pack(side="right", padx=(8, 0))
+
+        self.btn_save_one = ctk.CTkButton(
+            btn_row, text="개별 저장", width=88, height=32, corner_radius=6,
+            fg_color=("#E2E8F0", "#262936"), hover_color=("#CBD5E1", "#323646"),
+            text_color=TEXT_MAIN, font=("맑은 고딕", 12, "bold"), command=self.save_current_item
+        )
+        self.btn_save_one.pack(side="right")
+
+        # 2. 메인 좌우 분할 영역
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=22, pady=18)
+        body.grid_columnconfigure(0, weight=3)
+        body.grid_columnconfigure(1, weight=2)
+        body.grid_rowconfigure(0, weight=1)
+
+        # [좌측] 이미지 미리보기 뷰어 + 이전/다음 네비게이션
+        left_card = ctk.CTkFrame(body, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR)
+        left_card.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+
+        self.preview_box = ctk.CTkFrame(left_card, width=400, height=380, corner_radius=8, fg_color=BG_INNER)
+        self.preview_box.pack(padx=16, pady=(16, 10), fill="both", expand=True)
+        self.preview_box.pack_propagate(False)
+
+        self.lbl_img = ctk.CTkLabel(self.preview_box, text="")
+        self.lbl_img.pack(expand=True)
+
+        nav_bar = ctk.CTkFrame(left_card, fg_color="transparent")
+        nav_bar.pack(pady=(0, 14))
+        self.btn_prev = ctk.CTkButton(
+            nav_bar, text="◀", width=44, height=32, corner_radius=6,
+            fg_color=BG_INNER, hover_color=BORDER_COLOR, text_color=TEXT_MAIN,
+            font=("맑은 고딕", 13, "bold"), command=self.prev_item
+        )
+        self.btn_prev.pack(side="left", padx=10)
+
+        self.lbl_page = ctk.CTkLabel(nav_bar, text="1 / 1", font=("맑은 고딕", 13, "bold"), text_color=TEXT_MAIN, width=70)
+        self.lbl_page.pack(side="left")
+
+        self.btn_next = ctk.CTkButton(
+            nav_bar, text="▶", width=44, height=32, corner_radius=6,
+            fg_color=BG_INNER, hover_color=BORDER_COLOR, text_color=TEXT_MAIN,
+            font=("맑은 고딕", 13, "bold"), command=self.next_item
+        )
+        self.btn_next.pack(side="left", padx=10)
+
+        # [우측] 개별 설정 컨트롤 판 (방법 2: 버튼 자체에 원래 설정 ● 표시)
+        right_card = ctk.CTkFrame(body, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR)
+        right_card.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+
+        opt_header = ctk.CTkFrame(right_card, fg_color="transparent")
+        opt_header.pack(fill="x", padx=18, pady=(16, 6))
+        ctk.CTkLabel(opt_header, text="배경 제거 방식", font=("맑은 고딕", 13, "bold"), text_color=TEXT_MAIN).pack(side="left")
+
+        # 원래 설정과 달라졌을 때만 나타나는 [↺ 원래대로] 미니 버튼
+        self.btn_reset_opt = ctk.CTkButton(
+            opt_header, text="↺ 원래대로", width=72, height=24, corner_radius=6,
+            fg_color="transparent", text_color=ACCENT, hover_color=BG_INNER,
+            font=("맑은 고딕", 11, "bold"), command=self.reset_current_pending
+        )
+
+        # 제거 방식 버튼 2개 (단색 배경 / 일반 사진)
+        mode_row = ctk.CTkFrame(right_card, fg_color="transparent")
+        mode_row.pack(fill="x", padx=18, pady=(0, 12))
+        mode_row.grid_columnconfigure((0, 1), weight=1)
+
+        self.mode_btns = {}
+        for idx, m_name in enumerate(["단색 배경", "일반 사진"]):
+            b = ctk.CTkButton(
+                mode_row, text=m_name, height=34, corner_radius=6,
+                font=("맑은 고딕", 12, "bold"),
+                command=lambda m=m_name: self.on_change_mode(m)
+            )
+            b.grid(row=0, column=idx, sticky="ew", padx=(0, 4) if idx == 0 else (4, 0))
+            self.mode_btns[m_name] = b
+
+        # 제거 감도 섹션 (단색 배경일 때만 표시되고 일반 사진일 때는 숨겨짐!)
+        self.strength_section = ctk.CTkFrame(right_card, fg_color="transparent")
+        ctk.CTkLabel(self.strength_section, text="제거 감도", font=("맑은 고딕", 13, "bold"), text_color=TEXT_MAIN).pack(anchor="w", pady=(0, 6))
+        str_row = ctk.CTkFrame(self.strength_section, fg_color="transparent")
+        str_row.pack(fill="x", pady=(0, 12))
+        str_row.grid_columnconfigure((0, 1, 2), weight=1)
+
+        self.str_btns = {}
+        for idx, s_name in enumerate(["낮음", "표준", "높음"]):
+            b = ctk.CTkButton(
+                str_row, text=s_name, height=32, corner_radius=6,
+                font=("맑은 고딕", 11, "bold"),
+                command=lambda s=s_name: self.on_change_strength(s)
+            )
+            b.grid(row=0, column=idx, sticky="ew", padx=2)
+            self.str_btns[s_name] = b
+
+        # 다듬기 섹션
+        self.trim_section = ctk.CTkFrame(right_card, fg_color="transparent")
+        self.trim_section.pack(fill="x", padx=18, pady=(2, 8))
+        ctk.CTkLabel(self.trim_section, text="다듬기", font=("맑은 고딕", 13, "bold"), text_color=TEXT_MAIN).pack(anchor="w", pady=(0, 6))
+
+        self.sw_crop = ctk.CTkSwitch(
+            self.trim_section, text="빈 여백 자동 자르기", font=("맑은 고딕", 12),
+            text_color=TEXT_MAIN, progress_color=ACCENT, command=self.on_change_trim
+        )
+        self.sw_crop.pack(anchor="w", pady=4)
+
+        self.sw_square = ctk.CTkSwitch(
+            self.trim_section, text="1:1 정사각형 맞춤", font=("맑은 고딕", 12),
+            text_color=TEXT_MAIN, progress_color=ACCENT, command=self.on_change_trim
+        )
+        self.sw_square.pack(anchor="w", pady=4)
+
+        # 우측 하단 통합 액션 영역 ([변경사항 적용] + [전체 저장])
+        bottom_act = ctk.CTkFrame(right_card, fg_color="transparent")
+        bottom_act.pack(side="bottom", fill="x", padx=18, pady=16)
+
+        # 중복 설정 경고 라벨 (평소엔 빈칸, 동일 설정 클릭 시 2초간 빨간 글씨 표시)
+        self.lbl_warn = ctk.CTkLabel(bottom_act, text="", font=("맑은 고딕", 11, "bold"), text_color=ERROR_COLOR)
+        self.lbl_warn.pack(anchor="w", pady=(0, 4))
+
+        self.btn_apply = ctk.CTkButton(
+            bottom_act, text="변경사항 적용", height=40, corner_radius=8,
+            fg_color=("#E2E8F0", "#262936"), hover_color=("#CBD5E1", "#323646"),
+            text_color=TEXT_MAIN, border_width=1, border_color=BORDER_COLOR,
+            font=("맑은 고딕", 13, "bold"), command=self.apply_pending_changes
+        )
+        self.btn_apply.pack(fill="x", pady=(0, 8))
+
+        self.btn_save_all = ctk.CTkButton(
+            bottom_act, text="전체 저장", height=44, corner_radius=8,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color="#FFFFFF",
+            font=("맑은 고딕", 14, "bold"), command=self.save_all_items
+        )
+        self.btn_save_all.pack(fill="x")
+
+    # ------------------------------------------
+    # UI 동기화 및 원래 설정 점(●) 표시 로직 (방법 2)
+    # ------------------------------------------
+    def load_current_item_to_ui(self):
+        if not self.items:
+            self.destroy()
+            return
+
+        self.current_idx = max(0, min(self.current_idx, len(self.items) - 1))
+        item = self.items[self.current_idx]
+
+        # 상단 파일명 및 [● 저장됨] 배지 표시
+        fname = os.path.basename(item["path"])
+        self.lbl_filename.configure(text=fname)
+        if item["saved"]:
+            self.lbl_saved_badge.pack(side="left", padx=(10, 0), ipadx=6, ipady=1)
+        else:
+            self.lbl_saved_badge.pack_forget()
+
+        # 페이지 번호
+        self.lbl_page.configure(text=f"{self.current_idx + 1} / {len(self.items)}")
+
+        # 체커보드 미리보기 이미지 렌더링
+        checker_img, sz = create_checkerboard_preview(item["pil_img"], box_size=(380, 350))
+        ctk_img = ctk.CTkImage(light_image=checker_img, dark_image=checker_img, size=sz)
+        self.lbl_img.configure(image=ctk_img, text="")
+        self.lbl_img._image = ctk_img
+
+        self.refresh_right_controls()
+
+    def refresh_right_controls(self):
+        """현재 사진의 적용된 설정(applied)과 예약된 설정(pending)을 비교해 ● 표시 및 버튼을 갱신합니다."""
+        item = self.items[self.current_idx]
+        app_cfg = item["applied"]
+        pend_cfg = item["pending"]
+        is_modified = (app_cfg != pend_cfg)
+
+        if is_modified:
+            self.btn_reset_opt.pack(side="right")
+        else:
+            self.btn_reset_opt.pack_forget()
+
+        # 1. 배경 제거 방식 버튼 갱신 (원래 적용된 버튼에 ● 표시)
+        for m_name, btn in self.mode_btns.items():
+            label_txt = f"● {m_name}" if app_cfg["mode"] == m_name else m_name
+            if pend_cfg["mode"] == m_name:
+                btn.configure(text=label_txt, fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER, border_width=0)
+            else:
+                btn.configure(text=label_txt, fg_color=BG_INNER, text_color=TEXT_SUB, hover_color=BORDER_COLOR, border_width=1, border_color=BORDER_COLOR)
+
+        # 2. 단색 배경일 때만 제거 감도 표시, 일반 사진일 때는 완전 숨김!
+        if pend_cfg["mode"] == "단색 배경":
+            self.strength_section.pack(fill="x", padx=18, before=self.trim_section)
+            for s_name, btn in self.str_btns.items():
+                label_txt = f"● {s_name}" if (app_cfg["mode"] == "단색 배경" and app_cfg["strength"] == s_name) else s_name
+                if pend_cfg["strength"] == s_name:
+                    btn.configure(text=label_txt, fg_color="#32384D", text_color="#FFFFFF", hover_color="#3E455E", border_width=0)
+                else:
+                    btn.configure(text=label_txt, fg_color=BG_INNER, text_color=TEXT_SUB, hover_color=BORDER_COLOR, border_width=1, border_color=BORDER_COLOR)
+        else:
+            self.strength_section.pack_forget()
+
+        # 3. 다듬기 스위치 갱신 (원래 상태 표시)
+        crop_txt = "빈 여백 자동 자르기 (● 적용됨)" if app_cfg["auto_crop"] else "빈 여백 자동 자르기"
+        sq_txt = "1:1 정사각형 맞춤 (● 적용됨)" if app_cfg["make_square"] else "1:1 정사각형 맞춤"
+        self.sw_crop.configure(text=crop_txt)
+        self.sw_square.configure(text=sq_txt)
+
+        if pend_cfg["auto_crop"]:
+            self.sw_crop.select()
+        else:
+            self.sw_crop.deselect()
+
+        if pend_cfg["make_square"]:
+            self.sw_square.select()
+        else:
+            self.sw_square.deselect()
+
+        # 4. 전체 사진 중 변경 대기 중인 사진 개수 파악
+        changed_count = sum(1 for it in self.items if it["applied"] != it["pending"])
+        if changed_count > 0:
+            self.btn_apply.configure(
+                text=f"변경사항 적용 ({changed_count}장)",
+                border_color=ACCENT, border_width=2
+            )
+        else:
+            self.btn_apply.configure(
+                text="변경사항 적용",
+                border_color=BORDER_COLOR, border_width=1
+            )
+
+    def clear_warning(self):
+        if self.warn_timer:
+            self.after_cancel(self.warn_timer)
+            self.warn_timer = None
+        self.lbl_warn.configure(text="")
+        self.refresh_right_controls()
+
+    def show_duplicate_warning(self, msg):
+        self.shake_window()
+        self.lbl_warn.configure(text=msg)
+        self.btn_apply.configure(border_color=ERROR_COLOR, border_width=2)
+        if self.warn_timer:
+            self.after_cancel(self.warn_timer)
+        self.warn_timer = self.after(2200, self.clear_warning)
+
+    # ------------------------------------------
+    # 우측 옵션 조작 핸들러
+    # ------------------------------------------
+    def on_change_mode(self, new_mode):
+        self.clear_warning()
+        self.items[self.current_idx]["pending"]["mode"] = new_mode
+        self.refresh_right_controls()
+
+    def on_change_strength(self, new_str):
+        self.clear_warning()
+        self.items[self.current_idx]["pending"]["strength"] = new_str
+        self.refresh_right_controls()
+
+    def on_change_trim(self):
+        self.clear_warning()
+        self.items[self.current_idx]["pending"]["auto_crop"] = bool(self.sw_crop.get())
+        self.items[self.current_idx]["pending"]["make_square"] = bool(self.sw_square.get())
+        self.refresh_right_controls()
+
+    def reset_current_pending(self):
+        self.clear_warning()
+        item = self.items[self.current_idx]
+        item["pending"] = dict(item["applied"])
+        self.refresh_right_controls()
+
+    def prev_item(self):
+        if len(self.items) > 1:
+            self.current_idx = (self.current_idx - 1) % len(self.items)
+            self.load_current_item_to_ui()
+
+    def next_item(self):
+        if len(self.items) > 1:
+            self.current_idx = (self.current_idx + 1) % len(self.items)
+            self.load_current_item_to_ui()
+
+    # ------------------------------------------
+    # [변경사항 적용] (바뀐 사진만 백그라운드 재변환)
+    # ------------------------------------------
+    def apply_pending_changes(self):
+        if self.is_reprocessing:
+            return
+
+        target_indices = [i for i, it in enumerate(self.items) if it["applied"] != it["pending"]]
+        if not target_indices:
+            self.show_duplicate_warning("! 변경된 설정이 없습니다 (현재 화면과 동일한 설정입니다)")
+            return
+
+        self.is_reprocessing = True
+        target_names = [os.path.basename(self.items[i]["path"]) for i in target_indices]
+        self.floating_prog.start(target_names)
+
+        # 변환 시작 시점의 목표 설정을 복사
+        tasks = [(i, dict(self.items[i]["pending"])) for i in target_indices]
+
+        def worker():
+            total = len(tasks)
+            try:
+                for step_num, (item_idx, cfg) in enumerate(tasks, start=1):
+                    fpath = self.items[item_idx]["path"]
+
+                    def cb(msg, r, sn=step_num):
+                        self.after(0, lambda: self.floating_prog.update_state(sn, total, r))
+
+                    new_pil = engine_bg.process_image_to_memory(
+                        image_path=fpath,
+                        mode=cfg["mode"],
+                        strength=cfg["strength"],
+                        auto_crop=cfg["auto_crop"],
+                        make_square=cfg["make_square"],
+                        progress_callback=cb
+                    )
+
+                    def apply_one(idx=item_idx, pil_res=new_pil, c=cfg):
+                        if idx < len(self.items):
+                            self.items[idx]["pil_img"] = pil_res
+                            self.items[idx]["applied"] = dict(c)
+                            self.items[idx]["pending"] = dict(c)
+                            self.items[idx]["saved"] = False  # 새 결과물이 되었으므로 저장 배지 초기화
+                            if self.current_idx == idx:
+                                self.load_current_item_to_ui()
+                            else:
+                                self.refresh_right_controls()
+
+                    self.after(0, apply_one)
+
+                self.after(0, self.on_reprocess_done)
+            except Exception as e:
+                self.after(0, lambda err=str(e): self.on_reprocess_error(err))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def on_reprocess_done(self):
+        self.is_reprocessing = False
+        self.floating_prog.stop()
+        self.load_current_item_to_ui()
+
+    def on_reprocess_error(self, err_msg):
+        self.is_reprocessing = False
+        self.floating_prog.stop()
+        messagebox.showerror("재변환 오류", err_msg, parent=self)
+
+    # ------------------------------------------
+    # [삭제] / [개별 저장] / [전체 저장]
+    # ------------------------------------------
+    def delete_current_item(self):
+        if self.is_reprocessing or not self.items:
+            return
+        del self.items[self.current_idx]
+        if not self.items:
+            self.destroy()
+            return
+        if self.current_idx >= len(self.items):
+            self.current_idx = len(self.items) - 1
+        self.load_current_item_to_ui()
+
+    def save_current_item(self):
+        if not self.items:
+            return
+        item = self.items[self.current_idx]
+        out_dir, _ = engine_bg.save_processed_image(
+            pil_image=item["pil_img"],
+            original_path=item["path"],
+            formats=self.active_formats,
+            custom_out_dir=self.app.settings.get("custom_out_dir", ""),
+            filename_suffix=self.app.settings.get("filename_suffix", "_cut")
+        )
+        item["saved"] = True
+        self.load_current_item_to_ui()
+
+    def save_all_items(self):
+        if self.is_reprocessing or not self.items:
+            return
+        # 아직 개별 저장되지 않은 항목만 필터링 (모두 저장된 상태라면 전체 저장)
+        unsaved = [it for it in self.items if not it["saved"]]
+        targets = unsaved if unsaved else self.items
+
+        last_out_dir = ""
+        for it in targets:
+            out_dir, _ = engine_bg.save_processed_image(
+                pil_image=it["pil_img"],
+                original_path=it["path"],
+                formats=self.active_formats,
+                custom_out_dir=self.app.settings.get("custom_out_dir", ""),
+                filename_suffix=self.app.settings.get("filename_suffix", "_cut")
+            )
+            it["saved"] = True
+            last_out_dir = out_dir
+
+        self.load_current_item_to_ui()
+        messagebox.showinfo(
+            "저장 완료",
+            f"총 {len(targets)}장의 이미지가 저장되었습니다!\n\n저장 폴더:\n{last_out_dir}",
+            parent=self
+        )
+        if self.app.settings.get("auto_open_folder", True) and last_out_dir and os.path.exists(last_out_dir):
+            os.startfile(last_out_dir)
+        self.destroy()
+
+
+# ==========================================
+# 메인 애플리케이션 클래스
+# ==========================================
+class CleanCutApp(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        self.settings = self.load_settings()
+        ctk.set_appearance_mode(self.settings.get("theme", "dark"))
+
+        self.title("CleanCut Studio Pro")
+        self.geometry("880x600")
+        self.resizable(False, False)
+        self.configure(fg_color=BG_MAIN)
+
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+
+        self.bg_file_list = []
+        self.selected_mode = "단색 배경"
+        self.selected_strength = "표준"
+        self.main_mode_btns = {}
+        self.main_str_btns = {}
+        self.selected_formats = {"PNG": False, "WEBP": False, "ICO": False, "JPG": False}
+        self.format_buttons = {}
+        self.is_processing = False
+        self.file_warn_timer = None
+        self.current_page_name = "bg"
+
+        self.setup_sidebar()
+        self.setup_pages()
+        self.floating_prog = FloatingProgressWidget(self)
+        self.select_page("bg")
+
+        # 윈도우 파일 드래그 앤 드롭 훅 연결
+        if windnd is not None:
+            try:
+                windnd.hook_dropfiles(self, func=self.on_drop_files)
+            except Exception:
+                pass
+
+    # ==========================================
+    # 환경 설정 불러오기 및 저장
+    # ==========================================
+    def load_settings(self):
+        defaults = {
+            "use_custom_dir": False,
+            "custom_out_dir": "",
+            "theme": "dark",
+            "auto_open_folder": True,
+            "filename_suffix": "_cut"
+        }
+        if os.path.exists(SETTINGS_FILE):
+            try:
+                with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    defaults.update(data)
+            except Exception:
+                pass
+        return defaults
+
+    def save_settings(self):
+        try:
+            with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+                json.dump(self.settings, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def shake_window(self):
+        x = self.winfo_x()
+        y = self.winfo_y()
+        offsets = [-10, 10, -8, 8, -5, 5, -2, 2, 0]
+        for i, dx in enumerate(offsets):
+            self.after(i * 28, lambda new_x=x + dx: self.geometry(f"+{new_x}+{y}"))
+
+    # ==========================================
+    # 좌측 사이드바 구성 (환경 설정 탭 추가)
+    # ==========================================
+    def setup_sidebar(self):
+        self.sidebar = ctk.CTkFrame(self, width=220, corner_radius=0, fg_color=BG_SIDEBAR, border_width=1, border_color=BORDER_COLOR)
+        self.sidebar.grid(row=0, column=0, sticky="nsew")
+        self.sidebar.grid_propagate(False)
+
+        title_box = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        title_box.pack(fill="x", padx=24, pady=(32, 28))
+        ctk.CTkLabel(title_box, text="CLEANCUT", font=("맑은 고딕", 20, "bold"), text_color=TEXT_MAIN).pack(anchor="w")
+        ctk.CTkLabel(title_box, text="ALL-IN-ONE IMAGE STUDIO", font=("맑은 고딕", 10, "bold"), text_color=ACCENT).pack(anchor="w")
+
+        ctk.CTkLabel(self.sidebar, text="WORKSPACE", font=("맑은 고딕", 10, "bold"), text_color=TEXT_SUB).pack(anchor="w", padx=24, pady=(0, 8))
+
+        self.nav_bg_btn = ctk.CTkButton(
+            self.sidebar, text="  1. 배경 투명화 & 변환", anchor="w", height=42, corner_radius=8,
+            font=("맑은 고딕", 13, "bold"), command=lambda: self.select_page("bg")
+        )
+        self.nav_bg_btn.pack(fill="x", padx=16, pady=4)
+
+        self.nav_eraser_btn = ctk.CTkButton(
+            self.sidebar, text="  2. 매직 지우개 (복원)", anchor="w", height=42, corner_radius=8,
+            font=("맑은 고딕", 13, "bold"), command=lambda: self.select_page("eraser")
+        )
+        self.nav_eraser_btn.pack(fill="x", padx=16, pady=4)
+
+        self.nav_upscale_btn = ctk.CTkButton(
+            self.sidebar, text="  3. AI 화질 복원 (업스케일)", anchor="w", height=42, corner_radius=8,
+            font=("맑은 고딕", 13, "bold"), command=lambda: self.select_page("upscale")
+        )
+        self.nav_upscale_btn.pack(fill="x", padx=16, pady=4)
+
+        bottom_box = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        bottom_box.pack(side="bottom", fill="x", padx=16, pady=20)
+
+        self.nav_settings_btn = ctk.CTkButton(
+            bottom_box, text="  ⚙  환경 설정", anchor="w", height=38, corner_radius=8,
+            font=("맑은 고딕", 12, "bold"), fg_color="transparent", text_color=TEXT_SUB,
+            hover_color=BG_INNER, command=lambda: self.select_page("settings")
+        )
+        self.nav_settings_btn.pack(fill="x", pady=(0, 12))
+
+        status_box = ctk.CTkFrame(bottom_box, fg_color="transparent")
+        status_box.pack(fill="x", padx=8)
+        self.engine_dot = ctk.CTkLabel(status_box, text="● Modular Engine Ready", font=("맑은 고딕", 11), text_color=SUCCESS_COLOR)
+        self.engine_dot.pack(anchor="w")
+        ctk.CTkLabel(status_box, text="Version 1.0.0 Pro", font=("맑은 고딕", 11), text_color=TEXT_SUB).pack(anchor="w")
+
+    # ==========================================
+    # 우측 페이지 4개 생성
+    # ==========================================
+    def setup_pages(self):
+        self.container = ctk.CTkFrame(self, fg_color="transparent")
+        self.container.grid(row=0, column=1, sticky="nsew", padx=28, pady=24)
+        self.container.grid_columnconfigure(0, weight=1)
+        self.container.grid_rowconfigure(0, weight=1)
+
+        self.page_bg = ctk.CTkFrame(self.container, fg_color="transparent")
+        self.page_eraser = ctk.CTkFrame(self.container, fg_color="transparent")
+        self.page_upscale = ctk.CTkFrame(self.container, fg_color="transparent")
+        self.page_settings = ctk.CTkFrame(self.container, fg_color="transparent")
+
+        self.build_bg_page()
+        self.build_eraser_page()
+        self.build_upscale_page()
+        self.build_settings_page()
+
+    # ------------------------------------------
+    # [페이지 1] 배경 투명화 & 변환
+    # ------------------------------------------
+    def build_bg_page(self):
+        header = ctk.CTkFrame(self.page_bg, fg_color="transparent")
+        header.pack(fill="x", pady=(0, 16))
+        ctk.CTkLabel(header, text="배경 투명화 및 일괄 변환", font=("맑은 고딕", 20, "bold"), text_color=TEXT_MAIN).pack(anchor="w")
+        ctk.CTkLabel(header, text="단색 배경 또는 일반 사진 모드로 여러 이미지의 배경을 깔끔하게 지웁니다.", font=("맑은 고딕", 12), text_color=TEXT_SUB).pack(anchor="w", pady=(2, 0))
+
+        self.drop_card = ctk.CTkFrame(self.page_bg, height=130, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR, cursor="hand2")
+        self.drop_card.pack(fill="x", pady=(0, 16))
+        self.drop_card.pack_propagate(False)
+
+        lbl1 = ctk.CTkLabel(self.drop_card, text="+  작업할 이미지 파일 추가하기 (클릭 또는 드래그 앤 드롭)", font=("맑은 고딕", 15, "bold"), text_color=TEXT_MAIN)
+        lbl1.pack(pady=(22, 4))
+        lbl2 = ctk.CTkLabel(self.drop_card, text="여러 폴더의 이미지를 나눠서 추가할 수 있으며, 아래 배지를 누르면 개별 취소할 수 있습니다", font=("맑은 고딕", 12), text_color=TEXT_SUB)
+        lbl2.pack()
+
+        # 클릭 시 파일 목록/취소 모달을 여는 인터랙티브 배지 버튼
+        self.file_badge = ctk.CTkButton(
+            self.drop_card, text=" 현재 선택된 파일: 0개 ", height=28, corner_radius=6,
+            font=("맑은 고딕", 11, "bold"), text_color=ACCENT, fg_color=BG_INNER,
+            hover_color=BORDER_COLOR, command=self.on_click_file_badge
+        )
+        self.file_badge.pack(pady=(10, 0))
+
+        for widget in [self.drop_card, lbl1, lbl2]:
+            widget.bind("<Button-1>", lambda e: self.select_bg_files())
+
+        grid_frame = ctk.CTkFrame(self.page_bg, fg_color="transparent")
+        grid_frame.pack(fill="x", pady=(0, 14))
+        grid_frame.grid_columnconfigure((0, 1), weight=1)
+
+        # 좌측 카드: 배경 제거 방식 & 제거 감도 (직사각형 안의 직사각형 느낌을 없앤 깔끔한 개별 버튼 구조!)
+        self.card_left = ctk.CTkFrame(grid_frame, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR)
+        self.card_left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+
+        ctk.CTkLabel(self.card_left, text="PROCESSING ENGINE", font=("맑은 고딕", 10, "bold"), text_color=ACCENT).pack(anchor="w", padx=18, pady=(16, 2))
+        lbl_mode_title = ctk.CTkLabel(self.card_left, text="배경 제거 방식", font=("맑은 고딕", 14, "bold"), text_color=TEXT_MAIN)
+        lbl_mode_title.pack(anchor="w", padx=18, pady=(0, 10))
+
+        mode_btn_row = ctk.CTkFrame(self.card_left, fg_color="transparent")
+        mode_btn_row.pack(fill="x", padx=18, pady=(0, 12))
+        mode_btn_row.grid_columnconfigure((0, 1), weight=1)
+
+        for idx, m_name in enumerate(["단색 배경", "일반 사진"]):
+            btn = ctk.CTkButton(
+                mode_btn_row, text=m_name, height=34, corner_radius=6,
+                font=("맑은 고딕", 12, "bold"),
+                command=lambda m=m_name: self.on_main_mode_change(m)
+            )
+            btn.grid(row=0, column=idx, sticky="ew", padx=(0, 4) if idx == 0 else (4, 0))
+            self.main_mode_btns[m_name] = btn
+            ToolTip(
+                btn,
+                "• 단색 배경: 흰색 등 단색 배경의 로고·아이콘을 빠르게 지웁니다.\n"
+                "• 일반 사진: 배경이 복잡한 인물·상품 사진을 정밀하게 오려냅니다."
+            )
+
+        # 제거 감도 컨테이너 (단색 배경일 때만 표시됨)
+        self.main_strength_box = ctk.CTkFrame(self.card_left, fg_color="transparent")
+        self.main_strength_box.pack(fill="x", padx=18, pady=(0, 16))
+
+        ctk.CTkLabel(self.main_strength_box, text="제거 감도", font=("맑은 고딕", 12), text_color=TEXT_SUB).pack(anchor="w", pady=(0, 6))
+
+        str_btn_row = ctk.CTkFrame(self.main_strength_box, fg_color="transparent")
+        str_btn_row.pack(fill="x")
+        str_btn_row.grid_columnconfigure((0, 1, 2), weight=1)
+
+        for idx, s_name in enumerate(["낮음", "표준", "높음"]):
+            btn = ctk.CTkButton(
+                str_btn_row, text=s_name, height=32, corner_radius=6,
+                font=("맑은 고딕", 11, "bold"),
+                command=lambda s=s_name: self.on_main_strength_change(s)
+            )
+            btn.grid(row=0, column=idx, sticky="ew", padx=2)
+            self.main_str_btns[s_name] = btn
+            ToolTip(
+                btn,
+                "• 낮음: 배경색과 완전히 같은 색만 조심스럽게 지웁니다.\n"
+                "• 표준: 일반적인 로고·아이콘에 가장 알맞은 기본 감도입니다.\n"
+                "• 높음: 테두리에 남은 흐릿한 그림자나 얼룩까지 넓게 지웁니다."
+            )
+
+        self.update_main_left_buttons()
+
+        # 우측 카드: 다듬기 & 출력 확장자
+        self.card_right = ctk.CTkFrame(grid_frame, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR)
+        self.card_right.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+
+        ctk.CTkLabel(self.card_right, text="OUTPUT & EXPORT", font=("맑은 고딕", 10, "bold"), text_color=ACCENT).pack(anchor="w", padx=18, pady=(16, 2))
+        ctk.CTkLabel(self.card_right, text="다듬기 및 저장 포맷", font=("맑은 고딕", 14, "bold"), text_color=TEXT_MAIN).pack(anchor="w", padx=18, pady=(0, 8))
+
+        # 두 스위치 모두 초기값 OFF 상태로 시작!
+        self.crop_sw = ctk.CTkSwitch(self.card_right, text="빈 여백 자동 자르기", font=("맑은 고딕", 12), text_color=TEXT_MAIN, progress_color=ACCENT)
+        self.crop_sw.pack(anchor="w", padx=18, pady=4)
+        ToolTip(self.crop_sw, "투명해진 바깥의 빈 공간을 잘라내고, 가운데 피사체 크기에 딱 맞게 맞춥니다.")
+
+        self.square_sw = ctk.CTkSwitch(self.card_right, text="1:1 정사각형 맞춤", font=("맑은 고딕", 12), text_color=TEXT_MAIN, progress_color=ACCENT)
+        self.square_sw.pack(anchor="w", padx=18, pady=4)
+        ToolTip(self.square_sw, "이미지가 찌그러지지 않게 상하 또는 좌우 여백을 보태어 반듯한 정사각형으로 만듭니다.")
+
+        self.fmt_label = ctk.CTkLabel(self.card_right, text="출력 확장자 선택 (1개 이상 선택 필수)", font=("맑은 고딕", 12), text_color=TEXT_SUB)
+        self.fmt_label.pack(anchor="w", padx=18, pady=(8, 6))
+
+        fmt_box = ctk.CTkFrame(self.card_right, fg_color="transparent")
+        fmt_box.pack(fill="x", padx=18, pady=(0, 16))
+        for fmt in ["PNG", "WEBP", "ICO", "JPG"]:
+            btn = ctk.CTkButton(
+                fmt_box, text=fmt, width=58, height=30, corner_radius=6, font=("맑은 고딕", 11, "bold"),
+                command=lambda f=fmt: self.toggle_format(f)
+            )
+            btn.pack(side="left", padx=(0, 6))
+            self.format_buttons[fmt] = btn
+        self.update_format_buttons()
+
+        # 하단 실행 버튼 바: 좌측 [결과 미리보기] + 우측 [일괄 배경 제거 및 변환 시작]
+        self.bottom_action_box = ctk.CTkFrame(self.page_bg, fg_color="transparent")
+        self.bottom_action_box.pack(fill="x", side="bottom")
+        self.bottom_action_box.grid_columnconfigure(0, weight=1)
+        self.bottom_action_box.grid_columnconfigure(1, weight=2)
+
+        self.bg_preview_btn = ctk.CTkButton(
+            self.bottom_action_box, text="결과 미리보기", height=48, corner_radius=10,
+            font=("맑은 고딕", 14, "bold"), fg_color=BG_CARD, hover_color=BORDER_COLOR,
+            text_color=TEXT_MAIN, border_width=1, border_color=BORDER_COLOR,
+            command=lambda: self.start_bg_process(open_preview=True)
+        )
+        self.bg_preview_btn.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+
+        self.bg_run_btn = ctk.CTkButton(
+            self.bottom_action_box, text="일괄 배경 제거 및 변환 시작", height=48, corner_radius=10,
+            font=("맑은 고딕", 15, "bold"), fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            text_color="#FFFFFF", command=lambda: self.start_bg_process(open_preview=False)
+        )
+        self.bg_run_btn.grid(row=0, column=1, sticky="ew", padx=(8, 0))
+
+    def on_main_mode_change(self, selected_mode):
+        """메인 화면에서 '일반 사진' 선택 시 제거 감도 영역을 숨기고 버튼 스타일을 갱신합니다."""
+        if self.is_processing:
+            return
+        self.selected_mode = selected_mode
+        if selected_mode == "단색 배경":
+            self.main_strength_box.pack(fill="x", padx=18, pady=(0, 16))
+        else:
+            self.main_strength_box.pack_forget()
+        self.update_main_left_buttons()
+
+    def on_main_strength_change(self, selected_str):
+        if self.is_processing:
+            return
+        self.selected_strength = selected_str
+        self.update_main_left_buttons()
+
+    def update_main_left_buttons(self):
+        for m_name, btn in self.main_mode_btns.items():
+            if self.selected_mode == m_name:
+                btn.configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER, border_width=0)
+            else:
+                btn.configure(fg_color=BG_INNER, text_color=TEXT_SUB, hover_color=BORDER_COLOR, border_width=1, border_color=BORDER_COLOR)
+
+        for s_name, btn in self.main_str_btns.items():
+            if self.selected_strength == s_name:
+                btn.configure(fg_color="#32384D", text_color="#FFFFFF", hover_color="#3E455E", border_width=0)
+            else:
+                btn.configure(fg_color=BG_INNER, text_color=TEXT_SUB, hover_color=BORDER_COLOR, border_width=1, border_color=BORDER_COLOR)
+
+    # ------------------------------------------
+    # [페이지 2] 매직 지우개 (복원)
+    # ------------------------------------------
+    def build_eraser_page(self):
+        header = ctk.CTkFrame(self.page_eraser, fg_color="transparent")
+        header.pack(fill="x", pady=(0, 12))
+        ctk.CTkLabel(header, text="매직 지우개 (텍스트 / 마크 복원)", font=("맑은 고딕", 20, "bold"), text_color=TEXT_MAIN).pack(anchor="w")
+        ctk.CTkLabel(header, text="지우고 싶은 글씨나 로고 위를 마우스로 칠하면 주변 배경에 맞춰 자연스럽게 복원합니다.", font=("맑은 고딕", 12), text_color=TEXT_SUB).pack(anchor="w", pady=(2, 0))
+
+        ctrl_bar = ctk.CTkFrame(self.page_eraser, height=48, corner_radius=10, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR)
+        ctrl_bar.pack(fill="x", pady=(0, 12))
+
+        ctk.CTkButton(ctrl_bar, text="이미지 열기", width=95, height=32, corner_radius=6, fg_color="#262936", hover_color="#323646", font=("맑은 고딕", 12, "bold")).pack(side="left", padx=12, pady=8)
+        ctk.CTkLabel(ctrl_bar, text="브러시 두께", font=("맑은 고딕", 12), text_color=TEXT_SUB).pack(side="left", padx=(12, 6))
+        ctk.CTkSlider(ctrl_bar, from_=5, to=60, width=150, button_color=ACCENT, progress_color=ACCENT).pack(side="left", padx=4)
+        ctk.CTkButton(ctrl_bar, text="칠한 영역 초기화", width=110, height=32, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, hover_color="#262936", text_color=TEXT_MAIN, font=("맑은 고딕", 12)).pack(side="right", padx=12, pady=8)
+
+        canvas_card = ctk.CTkFrame(self.page_eraser, corner_radius=12, fg_color=BG_INNER, border_width=1, border_color=BORDER_COLOR)
+        canvas_card.pack(fill="both", expand=True, pady=(0, 14))
+        ctk.CTkLabel(canvas_card, text="다음 단계에서 engine_eraser.py 부품이 연결됩니다", font=("맑은 고딕", 13), text_color=TEXT_SUB).pack(expand=True)
+
+        bot_bar = ctk.CTkFrame(self.page_eraser, fg_color="transparent")
+        bot_bar.pack(fill="x", side="bottom")
+        ctk.CTkButton(bot_bar, text="칠한 영역 흔적 없이 지우기", height=46, corner_radius=10, font=("맑은 고딕", 14, "bold"), fg_color=ACCENT, hover_color=ACCENT_HOVER).pack(side="left", fill="x", expand=True, padx=(0, 6))
+        ctk.CTkButton(bot_bar, text="결과물 저장하기", width=160, height=46, corner_radius=10, font=("맑은 고딕", 14, "bold"), fg_color="#262936", hover_color="#323646").pack(side="right", padx=(6, 0))
+
+    # ------------------------------------------
+    # [페이지 3] AI 화질 복원 (업스케일링)
+    # ------------------------------------------
+    def build_upscale_page(self):
+        header = ctk.CTkFrame(self.page_upscale, fg_color="transparent")
+        header.pack(fill="x", pady=(0, 16))
+        ctk.CTkLabel(header, text="AI 초고화질 복원 (업스케일링)", font=("맑은 고딕", 20, "bold"), text_color=TEXT_MAIN).pack(anchor="w")
+        ctk.CTkLabel(header, text="저해상도 이미지의 깨진 픽셀과 노이즈를 제거하고 최대 4배까지 선명하게 확대합니다.", font=("맑은 고딕", 12), text_color=TEXT_SUB).pack(anchor="w", pady=(2, 0))
+
+        up_drop_card = ctk.CTkFrame(self.page_upscale, height=135, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR)
+        up_drop_card.pack(fill="x", pady=(0, 16))
+        up_drop_card.pack_propagate(False)
+
+        ctk.CTkLabel(up_drop_card, text="+  화질을 높일 이미지 불러오기", font=("맑은 고딕", 15, "bold"), text_color=TEXT_MAIN).pack(pady=(30, 4))
+        ctk.CTkLabel(up_drop_card, text="다음 단계에서 engine_upscale.py 부품이 연결됩니다", font=("맑은 고딕", 12), text_color=TEXT_SUB).pack()
+
+        up_badge = ctk.CTkLabel(up_drop_card, text=" 현재 선택된 파일: 0개 ", font=("맑은 고딕", 11, "bold"), text_color=ACCENT, fg_color=BG_INNER, corner_radius=6)
+        up_badge.pack(pady=(10, 0), ipadx=8, ipady=2)
+
+        up_grid = ctk.CTkFrame(self.page_upscale, fg_color="transparent")
+        up_grid.pack(fill="x", pady=(0, 16))
+        up_grid.grid_columnconfigure((0, 1), weight=1)
+
+        up_left = ctk.CTkFrame(up_grid, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR)
+        up_left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+
+        ctk.CTkLabel(up_left, text="AI UPSCALE ENGINE", font=("맑은 고딕", 10, "bold"), text_color=ACCENT).pack(anchor="w", padx=18, pady=(16, 2))
+        ctk.CTkLabel(up_left, text="화질 복원 엔진 선택", font=("맑은 고딕", 14, "bold"), text_color=TEXT_MAIN).pack(anchor="w", padx=18, pady=(0, 12))
+
+        self.up_engine_seg = ctk.CTkSegmentedButton(
+            up_left, values=["고속 선명화 (OpenCV)", "초고화질 복원 (Real-ESRGAN)"], height=34,
+            font=("맑은 고딕", 11, "bold"), fg_color=BG_INNER, selected_color=ACCENT, selected_hover_color=ACCENT_HOVER
+        )
+        self.up_engine_seg.set("고속 선명화 (OpenCV)")
+        self.up_engine_seg.pack(fill="x", padx=18, pady=(0, 14))
+
+        ctk.CTkLabel(up_left, text="원본 이미지 맞춤 최적화", font=("맑은 고딕", 12), text_color=TEXT_SUB).pack(anchor="w", padx=18, pady=(0, 6))
+        self.up_type_seg = ctk.CTkSegmentedButton(
+            up_left, values=["실사 / 인물 / 상품", "일러스트 / 로고 / 텍스트"], height=32,
+            font=("맑은 고딕", 11), fg_color=BG_INNER, selected_color="#32384D", selected_hover_color="#3E455E"
+        )
+        self.up_type_seg.set("실사 / 인물 / 상품")
+        self.up_type_seg.pack(fill="x", padx=18, pady=(0, 18))
+
+        up_right = ctk.CTkFrame(up_grid, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR)
+        up_right.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+
+        ctk.CTkLabel(up_right, text="RESOLUTION & DETAIL", font=("맑은 고딕", 10, "bold"), text_color=ACCENT).pack(anchor="w", padx=18, pady=(16, 2))
+        ctk.CTkLabel(up_right, text="확대 배율 및 후보정", font=("맑은 고딕", 14, "bold"), text_color=TEXT_MAIN).pack(anchor="w", padx=18, pady=(0, 12))
+
+        self.scale_seg = ctk.CTkSegmentedButton(
+            up_right, values=["2배 확대 (2x)", "4배 확대 (4x · 4K급)"], height=34,
+            font=("맑은 고딕", 12, "bold"), fg_color=BG_INNER, selected_color=ACCENT, selected_hover_color=ACCENT_HOVER
+        )
+        self.scale_seg.set("2배 확대 (2x)")
+        self.scale_seg.pack(fill="x", padx=18, pady=(0, 14))
+
+        self.denoise_sw = ctk.CTkSwitch(up_right, text="JPG 압축 노이즈(깍두기) 자동 제거", font=("맑은 고딕", 12), text_color=TEXT_MAIN, progress_color=ACCENT)
+        self.denoise_sw.select()
+        self.denoise_sw.pack(anchor="w", padx=18, pady=4)
+
+        self.sharpen_sw = ctk.CTkSwitch(up_right, text="외곽선 선명도(Sharpening) 강화", font=("맑은 고딕", 12), text_color=TEXT_MAIN, progress_color=ACCENT)
+        self.sharpen_sw.select()
+        self.sharpen_sw.pack(anchor="w", padx=18, pady=(4, 16))
+
+        up_run_btn = ctk.CTkButton(
+            self.page_upscale, text="AI 화질 복원 및 확대 시작", height=48, corner_radius=10,
+            font=("맑은 고딕", 15, "bold"), fg_color=ACCENT, hover_color=ACCENT_HOVER
+        )
+        up_run_btn.pack(fill="x", side="bottom")
+
+    # ------------------------------------------
+    # [페이지 4] 환경 설정 (Settings)
+    # ------------------------------------------
+    def build_settings_page(self):
+        header = ctk.CTkFrame(self.page_settings, fg_color="transparent")
+        header.pack(fill="x", pady=(0, 16))
+        ctk.CTkLabel(header, text="환경 설정", font=("맑은 고딕", 20, "bold"), text_color=TEXT_MAIN).pack(anchor="w")
+        ctk.CTkLabel(header, text="저장 경로, 화면 테마, 파일 이름 규칙 등 작업 환경을 설정합니다.", font=("맑은 고딕", 12), text_color=TEXT_SUB).pack(anchor="w", pady=(2, 0))
+
+        card = ctk.CTkFrame(self.page_settings, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR)
+        card.pack(fill="both", expand=True)
+
+        # 1. 파일 저장 위치
+        row1 = ctk.CTkFrame(card, fg_color="transparent")
+        row1.pack(fill="x", padx=22, pady=(20, 12))
+        ctk.CTkLabel(row1, text="1. 결과물 저장 위치", font=("맑은 고딕", 14, "bold"), text_color=TEXT_MAIN).pack(anchor="w")
+        ctk.CTkLabel(row1, text="비워두면 원본 사진 폴더 안에 'CleanCut_결과물' 폴더가 자동 생성됩니다.", font=("맑은 고딕", 11), text_color=TEXT_SUB).pack(anchor="w", pady=(2, 8))
+
+        dir_box = ctk.CTkFrame(row1, fg_color="transparent")
+        dir_box.pack(fill="x")
+        self.entry_out_dir = ctk.CTkEntry(dir_box, height=34, font=("맑은 고딕", 12), placeholder_text="기본값 (원본 폴더 내 'CleanCut_결과물' 자동 생성)")
+        self.entry_out_dir.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        if self.settings.get("custom_out_dir"):
+            self.entry_out_dir.insert(0, self.settings["custom_out_dir"])
+
+        ctk.CTkButton(
+            dir_box, text="폴더 선택", width=85, height=34, corner_radius=6,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER, font=("맑은 고딕", 12, "bold"),
+            command=self.choose_custom_out_dir
+        ).pack(side="left", padx=(0, 6))
+
+        ctk.CTkButton(
+            dir_box, text="기본값", width=65, height=34, corner_radius=6,
+            fg_color=BG_INNER, text_color=TEXT_MAIN, hover_color=BORDER_COLOR, font=("맑은 고딕", 12),
+            command=self.clear_custom_out_dir
+        ).pack(side="left")
+
+        # 2. 화면 테마
+        row2 = ctk.CTkFrame(card, fg_color="transparent")
+        row2.pack(fill="x", padx=22, pady=12)
+        ctk.CTkLabel(row2, text="2. 화면 테마 모드", font=("맑은 고딕", 14, "bold"), text_color=TEXT_MAIN).pack(side="left")
+        self.theme_seg = ctk.CTkSegmentedButton(
+            row2, values=["다크 모드", "화이트 모드"], width=200, height=32,
+            font=("맑은 고딕", 12, "bold"), selected_color=ACCENT, selected_hover_color=ACCENT_HOVER,
+            command=self.on_change_theme
+        )
+        self.theme_seg.set("화이트 모드" if self.settings.get("theme") == "light" else "다크 모드")
+        self.theme_seg.pack(side="right")
+
+        # 3. 완료 후 결과 폴더 자동 열기
+        row3 = ctk.CTkFrame(card, fg_color="transparent")
+        row3.pack(fill="x", padx=22, pady=12)
+        ctk.CTkLabel(row3, text="3. 저장 완료 후 결과물 폴더 자동으로 열기", font=("맑은 고딕", 14, "bold"), text_color=TEXT_MAIN).pack(side="left")
+        self.sw_auto_open = ctk.CTkSwitch(row3, text="", width=46, progress_color=ACCENT, command=self.on_toggle_auto_open)
+        if self.settings.get("auto_open_folder", True):
+            self.sw_auto_open.select()
+        self.sw_auto_open.pack(side="right")
+
+        # 4. 저장 파일 이름 뒤에 붙일 글자
+        row4 = ctk.CTkFrame(card, fg_color="transparent")
+        row4.pack(fill="x", padx=22, pady=12)
+        left_r4 = ctk.CTkFrame(row4, fg_color="transparent")
+        left_r4.pack(side="left")
+        ctk.CTkLabel(left_r4, text="4. 저장 파일 이름 뒤에 붙일 글자", font=("맑은 고딕", 14, "bold"), text_color=TEXT_MAIN).pack(anchor="w")
+        ctk.CTkLabel(left_r4, text="같은 이름의 파일이 이미 있으면 자동으로 뒤에 (1), (2) 번호가 붙어 덮어쓰기를 방지합니다.", font=("맑은 고딕", 11), text_color=TEXT_SUB).pack(anchor="w", pady=(2, 0))
+
+        self.entry_suffix = ctk.CTkEntry(row4, width=140, height=34, font=("맑은 고딕", 12))
+        self.entry_suffix.insert(0, self.settings.get("filename_suffix", "_cut"))
+        self.entry_suffix.pack(side="right")
+        self.entry_suffix.bind("<KeyRelease>", self.on_change_suffix)
+
+    def choose_custom_out_dir(self):
+        folder = filedialog.askdirectory(title="결과물을 저장할 고정 폴더 선택")
+        if folder:
+            self.entry_out_dir.delete(0, "end")
+            self.entry_out_dir.insert(0, folder)
+            self.settings["custom_out_dir"] = folder
+            self.save_settings()
+
+    def clear_custom_out_dir(self):
+        self.entry_out_dir.delete(0, "end")
+        self.settings["custom_out_dir"] = ""
+        self.save_settings()
+
+    def on_change_theme(self, val):
+        mode = "light" if val == "화이트 모드" else "dark"
+        ctk.set_appearance_mode(mode)
+        self.settings["theme"] = mode
+        self.save_settings()
+
+    def on_toggle_auto_open(self):
+        self.settings["auto_open_folder"] = bool(self.sw_auto_open.get())
+        self.save_settings()
+
+    def on_change_suffix(self, event=None):
+        self.settings["filename_suffix"] = self.entry_suffix.get().strip()
+        self.save_settings()
+
+    # ==========================================
+    # 파일 선택 / 드래그 앤 드롭 / 누적 추가 / 중복 검사 / 목록 관리
+    # ==========================================
+    def refresh_file_badge(self):
+        if self.file_warn_timer:
+            self.after_cancel(self.file_warn_timer)
+            self.file_warn_timer = None
+        self.drop_card.configure(border_color=BORDER_COLOR, border_width=1)
+        count = len(self.bg_file_list)
+        if count > 0:
+            self.file_badge.configure(
+                text=f" 현재 선택된 파일: {count}개 (클릭하여 관리/취소) ",
+                text_color=SUCCESS_COLOR
+            )
+        else:
+            self.file_badge.configure(
+                text=" 현재 선택된 파일: 0개 ",
+                text_color=ACCENT
+            )
+
+    def show_file_card_warning(self, msg):
+        self.shake_window()
+        self.drop_card.configure(border_color=ERROR_COLOR, border_width=2)
+        self.file_badge.configure(text=f" {msg} ", text_color=ERROR_COLOR)
+        if self.file_warn_timer:
+            self.after_cancel(self.file_warn_timer)
+        self.file_warn_timer = self.after(2300, self.refresh_file_badge)
+
+    def add_bg_files(self, raw_paths):
+        """새로 들어온 파일들을 기존 목록에 누적하며, 중복 파일이나 비이미지 파일을 걸러내고 알려줍니다."""
+        if self.is_processing or not raw_paths:
+            return
+
+        valid_exts = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
+        existing_norm = {os.path.normcase(os.path.abspath(p)) for p in self.bg_file_list}
+
+        added_count = 0
+        dup_count = 0
+        invalid_count = 0
+
+        for p in raw_paths:
+            if os.path.isdir(p):
+                # 폴더째로 드래그한 경우 폴더 내 이미지 파일들을 수집
+                for root_d, _, files in os.walk(p):
+                    for fn in files:
+                        full_p = os.path.join(root_d, fn)
+                        if full_p.lower().endswith(valid_exts):
+                            norm_p = os.path.normcase(os.path.abspath(full_p))
+                            if norm_p in existing_norm:
+                                dup_count += 1
+                            else:
+                                self.bg_file_list.append(full_p)
+                                existing_norm.add(norm_p)
+                                added_count += 1
+            else:
+                if not p.lower().endswith(valid_exts):
+                    invalid_count += 1
+                    continue
+                norm_p = os.path.normcase(os.path.abspath(p))
+                if norm_p in existing_norm:
+                    dup_count += 1
+                else:
+                    self.bg_file_list.append(p)
+                    existing_norm.add(norm_p)
+                    added_count += 1
+
+        if dup_count > 0:
+            if added_count > 0:
+                self.show_file_card_warning(f"! 중복 파일 {dup_count}개 제외됨 ({added_count}개 추가 완료)")
+            else:
+                self.show_file_card_warning(f"! 이미 추가된 중복 파일입니다 ({dup_count}개)")
+        elif invalid_count > 0 and added_count == 0:
+            self.show_file_card_warning("! 지원하지 않는 파일 형식입니다 (PNG, JPG, WEBP만 가능)")
+        else:
+            self.refresh_file_badge()
+
+    def on_drop_files(self, dropped_items):
+        """윈도우 탐색기에서 마우스로 파일을 끌어다 놓았을 때 호출됩니다."""
+        if self.is_processing or self.current_page_name != "bg":
+            return
+        decoded = []
+        for item in dropped_items:
+            if isinstance(item, bytes):
+                try:
+                    decoded.append(item.decode("mbcs"))
+                except Exception:
+                    decoded.append(item.decode("utf-8", errors="ignore"))
+            else:
+                decoded.append(str(item))
+        self.add_bg_files(decoded)
+
+    def on_click_file_badge(self):
+        """파일이 1개 이상 있을 때 배지를 클릭하면 파일 취소/관리 모달을 띄웁니다."""
+        if self.is_processing:
+            return
+        if not self.bg_file_list:
+            self.select_bg_files()
+        else:
+            FileListModal(self)
+
+    def select_bg_files(self):
+        if self.is_processing:
+            return
+        files = filedialog.askopenfilenames(
+            title="배경을 제거할 이미지 추가 선택 (여러 폴더에서 반복 추가 가능)",
+            filetypes=[("이미지 파일", "*.png;*.jpg;*.jpeg;*.webp;*.bmp"), ("모든 파일", "*.*")]
+        )
+        if files:
+            self.add_bg_files(list(files))
+
+    def start_bg_process(self, open_preview=False):
+        if self.is_processing:
+            return
+
+        active_formats = [fmt for fmt, selected in self.selected_formats.items() if selected]
+        has_error = False
+
+        if not self.bg_file_list:
+            self.drop_card.configure(border_color=ERROR_COLOR, border_width=2)
+            self.file_badge.configure(text=" ! 먼저 작업할 이미지 파일을 선택해주세요 ", text_color=ERROR_COLOR)
+            has_error = True
+
+        if not active_formats:
+            self.card_right.configure(border_color=ERROR_COLOR, border_width=2)
+            self.fmt_label.configure(text="! 저장할 출력 확장자를 1개 이상 선택해주세요", text_color=ERROR_COLOR, font=("맑은 고딕", 12, "bold"))
+            for btn in self.format_buttons.values():
+                btn.configure(border_color=ERROR_COLOR)
+            has_error = True
+
+        if has_error:
+            self.shake_window()
+            return
+
+        # 설정 페이지 입력값 최신화
+        self.settings["custom_out_dir"] = self.entry_out_dir.get().strip()
+        self.settings["filename_suffix"] = self.entry_suffix.get().strip()
+        self.save_settings()
+
+        mode = self.selected_mode
+        strength = self.selected_strength
+        auto_crop = bool(self.crop_sw.get())
+        make_square = bool(self.square_sw.get())
+
+        self.is_processing = True
+        file_names = [os.path.basename(p) for p in self.bg_file_list]
+        self.floating_prog.start(file_names)
+
+        self.engine_dot.configure(text="● Processing Active...", text_color=WARN_COLOR)
+        self.bg_preview_btn.configure(state="disabled")
+        self.bg_run_btn.configure(state="disabled", text="변환 작업 진행 중...")
+
+        def worker():
+            total = len(self.bg_file_list)
+            preview_items = []
+            last_out_dir = ""
+            try:
+                for idx, fpath in enumerate(self.bg_file_list, start=1):
+                    def step_cb(msg, ratio, i=idx):
+                        self.after(0, lambda: self.floating_prog.update_state(i, total, ratio))
+
+                    if open_preview:
+                        pil_res = engine_bg.process_image_to_memory(
+                            image_path=fpath,
+                            mode=mode,
+                            strength=strength,
+                            auto_crop=auto_crop,
+                            make_square=make_square,
+                            progress_callback=step_cb
+                        )
+                        init_cfg = {
+                            "mode": mode,
+                            "strength": strength,
+                            "auto_crop": auto_crop,
+                            "make_square": make_square
+                        }
+                        preview_items.append({
+                            "path": fpath,
+                            "pil_img": pil_res,
+                            "applied": dict(init_cfg),
+                            "pending": dict(init_cfg),
+                            "saved": False
+                        })
+                    else:
+                        out_dir, _ = engine_bg.remove_background_single(
+                            image_path=fpath,
+                            mode=mode,
+                            strength=strength,
+                            auto_crop=auto_crop,
+                            make_square=make_square,
+                            formats=active_formats,
+                            progress_callback=step_cb,
+                            custom_out_dir=self.settings.get("custom_out_dir", ""),
+                            filename_suffix=self.settings.get("filename_suffix", "_cut")
+                        )
+                        last_out_dir = out_dir
+
+                if open_preview:
+                    self.after(0, lambda: self.on_preview_ready(preview_items, active_formats))
+                else:
+                    self.after(0, lambda: self.on_bg_complete(total, last_out_dir))
+            except Exception as err:
+                self.after(0, lambda e=err: self.on_bg_error(str(e)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def on_preview_ready(self, preview_items, active_formats):
+        self.is_processing = False
+        self.floating_prog.stop()
+        self.engine_dot.configure(text="● Modular Engine Ready", text_color=SUCCESS_COLOR)
+        self.bg_preview_btn.configure(state="normal")
+        self.bg_run_btn.configure(state="normal", text="일괄 배경 제거 및 변환 시작")
+
+        PreviewWindow(self, preview_items, active_formats)
+
+    def on_bg_complete(self, total, out_dir):
+        self.is_processing = False
+        self.floating_prog.stop()
+        self.engine_dot.configure(text="● Modular Engine Ready", text_color=SUCCESS_COLOR)
+        self.bg_preview_btn.configure(state="normal")
+        self.bg_run_btn.configure(state="normal", text="일괄 배경 제거 및 변환 시작")
+
+        messagebox.showinfo(
+            "변환 완료",
+            f"총 {total}장의 이미지 처리가 완료되었습니다!\n\n저장 폴더:\n{out_dir}"
+        )
+        if self.settings.get("auto_open_folder", True) and out_dir and os.path.exists(out_dir):
+            os.startfile(out_dir)
+
+    def on_bg_error(self, err_msg):
+        self.is_processing = False
+        self.floating_prog.stop()
+        self.engine_dot.configure(text="● Engine Error", text_color=ERROR_COLOR)
+        self.bg_preview_btn.configure(state="normal")
+        self.bg_run_btn.configure(state="normal", text="일괄 배경 제거 및 변환 시작")
+        messagebox.showerror("오류 발생", err_msg)
+
+    # ==========================================
+    # 탭 전환 및 포맷 버튼 자유 토글
+    # ==========================================
+    def select_page(self, page_name):
+        self.current_page_name = page_name
+        for page in [self.page_bg, self.page_eraser, self.page_upscale, self.page_settings]:
+            page.pack_forget()
+        for btn in [self.nav_bg_btn, self.nav_eraser_btn, self.nav_upscale_btn, self.nav_settings_btn]:
+            btn.configure(fg_color="transparent", text_color=TEXT_SUB, hover_color=BG_INNER)
+
+        if page_name == "bg":
+            self.page_bg.pack(fill="both", expand=True)
+            self.nav_bg_btn.configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER)
+        elif page_name == "eraser":
+            self.page_eraser.pack(fill="both", expand=True)
+            self.nav_eraser_btn.configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER)
+        elif page_name == "upscale":
+            self.page_upscale.pack(fill="both", expand=True)
+            self.nav_upscale_btn.configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER)
+        elif page_name == "settings":
+            self.page_settings.pack(fill="both", expand=True)
+            self.nav_settings_btn.configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER)
+
+    def toggle_format(self, fmt):
+        if self.is_processing:
+            return
+        self.selected_formats[fmt] = not self.selected_formats[fmt]
+        if any(self.selected_formats.values()):
+            self.card_right.configure(border_color=BORDER_COLOR, border_width=1)
+            self.fmt_label.configure(text="출력 확장자 선택 (중복 선택 가능)", text_color=TEXT_SUB, font=("맑은 고딕", 12))
+        self.update_format_buttons()
+
+    def update_format_buttons(self):
+        for fmt, is_selected in self.selected_formats.items():
+            if is_selected:
+                self.format_buttons[fmt].configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER, border_width=0)
+            else:
+                self.format_buttons[fmt].configure(fg_color=BG_INNER, text_color=TEXT_SUB, hover_color=BORDER_COLOR, border_width=1, border_color=BORDER_COLOR)
+
+
+if __name__ == "__main__":
+    app = CleanCutApp()
+    app.mainloop()
+
+============================================================
+📁 FILE: make_samples.py
+============================================================
+from PIL import Image, ImageDraw
+
+# ==========================================
+# 샘플 1: 단색 배경 + 회색 노이즈 테두리 + 넓은 여백 (600x350)
+# ==========================================
+img1 = Image.new("RGB", (600, 350), (255, 255, 255))  # 순백색 넓은 배경
+draw1 = ImageDraw.Draw(img1)
+
+# 바깥쪽 애매한 밝은 회색 그림자 영역 (강도 '약하게'에서는 남고, '표준/강하게'에서는 지워짐!)
+draw1.ellipse((190, 65, 410, 285), fill=(225, 225, 225))
+
+# 메인 파란색 원형 로고 (절대 지워지면 안 되는 피사체)
+draw1.ellipse((215, 90, 385, 260), fill=(59, 130, 246), outline=(29, 78, 216), width=6)
+
+# 안쪽의 흰색 눈동자 (모서리와 연결되지 않은 내부 흰색이 안전하게 보호되는지 확인용)
+draw1.ellipse((255, 140, 285, 175), fill=(255, 255, 255))
+draw1.ellipse((315, 140, 345, 175), fill=(255, 255, 255))
+draw1.ellipse((265, 150, 278, 165), fill=(15, 23, 42))
+draw1.ellipse((325, 150, 338, 165), fill=(15, 23, 42))
+draw1.arc((260, 175, 340, 225), start=10, end=170, fill=(255, 255, 255), width=6)
+
+img1.save("샘플1_단색배경_강도테스트.png")
+
+
+# ==========================================
+# 샘플 2: 복잡한 컬러 배경 + 피사체 + 워터마크 글씨 (500x500)
+# ==========================================
+img2 = Image.new("RGB", (500, 500))
+px = img2.load()
+
+# 단색 제거로는 절대 못 지우는 알록달록한 그라데이션 + 격자 배경 생성
+for y in range(500):
+    for x in range(500):
+        r = int(40 + (x / 500) * 120)
+        g = int(140 - (y / 500) * 80)
+        b = int(100 + ((x + y) / 1000) * 120)
+        if (x // 40 + y // 40) % 2 == 0:
+            r, g, b = min(255, r + 25), min(255, g + 25), min(255, b + 25)
+        px[x, y] = (r, g, b)
+
+draw2 = ImageDraw.Draw(img2)
+
+# 중앙에 선명한 주황색 고양이/로봇 피사체 그리기
+draw2.polygon([(160, 180), (190, 90), (240, 150)], fill=(234, 88, 12))   # 왼쪽 귀
+draw2.polygon([(340, 180), (310, 90), (260, 150)], fill=(234, 88, 12))   # 오른쪽 귀
+draw2.rounded_rectangle((150, 140, 350, 380), radius=50, fill=(249, 115, 22), outline=(154, 52, 18), width=6)
+draw2.ellipse((195, 200, 230, 235), fill=(254, 240, 138))               # 왼쪽 눈
+draw2.ellipse((270, 200, 305, 235), fill=(254, 240, 138))               # 오른쪽 눈
+draw2.ellipse((207, 210, 220, 225), fill=(0, 0, 0))
+draw2.ellipse((282, 210, 295, 225), fill=(0, 0, 0))
+draw2.polygon([(240, 250), (260, 250), (250, 268)], fill=(254, 202, 202)) # 코
+
+# 몸통 한가운데에 지저분한 워터마크 박스 및 텍스트 박기 (2번 탭 매직 지우개 테스트용)
+draw2.rectangle((175, 305, 325, 345), fill=(255, 255, 255))
+draw2.text((192, 318), "WATERMARK 2026", fill=(220, 38, 38))
+
+img2.save("샘플2_복잡한배경_AI누끼_지우개테스트.jpg", quality=95)
+
+print("✅ 테스트용 샘플 이미지 2장 생성 완료!")
+
+============================================================
+📁 FILE: settings.json
+============================================================
+{
+  "use_custom_dir": false,
+  "custom_out_dir": "",
+  "theme": "dark",
+  "auto_open_folder": true,
+  "filename_suffix": "_cut"
+}
