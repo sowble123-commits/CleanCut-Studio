@@ -141,6 +141,12 @@ class PreviewWindow(ctk.CTkToplevel):
         self.title("변환 결과 미리보기 및 개별 수정")
         self.geometry("1000x720")
         self.resizable(True, True)
+        
+        self.lift()
+        self.focus_force()
+        self.after(10, lambda: self.attributes("-topmost", True))
+        self.after(200, lambda: self.attributes("-topmost", False))
+        
         self.configure(fg_color=BG_MAIN)
         
         self.floating_prog = FloatingProgressWidget(self)
@@ -161,7 +167,7 @@ class PreviewWindow(ctk.CTkToplevel):
 
         title_row = ctk.CTkFrame(top_bar, fg_color="transparent")
         title_row.pack(side="left", padx=22)
-        self.lbl_filename = ctk.CTkLabel(title_row, text="", font=("맑은 고딕", 15, "bold"), text_color=TEXT_MAIN)
+        self.lbl_filename = ctk.CTkLabel(title_row, text="", font=FONT_CARD_TITLE, text_color=TEXT_MAIN)
         self.lbl_filename.pack(side="left")
         self.lbl_saved_badge = ctk.CTkLabel(
             title_row, text=" ● 저장됨 ", font=FONT_SMALL_BOLD,
@@ -223,7 +229,7 @@ class PreviewWindow(ctk.CTkToplevel):
 
         opt_header = ctk.CTkFrame(right_card, fg_color="transparent")
         opt_header.pack(fill="x", padx=18, pady=(16, 6))
-        ctk.CTkLabel(opt_header, text="작업 모드", font=("맑은 고딕", 13, "bold"), text_color=TEXT_MAIN).pack(side="left")
+        ctk.CTkLabel(opt_header, text="작업 모드", font=FONT_CARD_TITLE, text_color=TEXT_MAIN).pack(side="left")
 
         self.btn_reset_opt = ctk.CTkButton(
             opt_header, text="↺ 원래대로", width=72, height=24, corner_radius=6,
@@ -247,7 +253,7 @@ class PreviewWindow(ctk.CTkToplevel):
             self.mode_btns[m_name] = b
 
         self.strength_section = ctk.CTkFrame(right_card, fg_color="transparent")
-        ctk.CTkLabel(self.strength_section, text="허용치 (단색 배경용)", font=("맑은 고딕", 13, "bold"), text_color=TEXT_MAIN).pack(anchor="w", pady=(0, 6))
+        ctk.CTkLabel(self.strength_section, text="허용치 (단색 배경용)", font=FONT_CARD_TITLE, text_color=TEXT_MAIN).pack(anchor="w", pady=(0, 6))
         str_row = ctk.CTkFrame(self.strength_section, fg_color="transparent")
         str_row.pack(fill="x", pady=(0, 12))
         str_row.grid_columnconfigure((0, 1, 2), weight=1, uniform="str_preview")
@@ -267,7 +273,7 @@ class PreviewWindow(ctk.CTkToplevel):
 
         self.trim_section = ctk.CTkFrame(right_card, fg_color="transparent")
         self.trim_section.pack(fill="x", padx=18, pady=(2, 8))
-        ctk.CTkLabel(self.trim_section, text="내보내기 설정", font=("맑은 고딕", 13, "bold"), text_color=TEXT_MAIN).pack(anchor="w", pady=(0, 6))
+        ctk.CTkLabel(self.trim_section, text="내보내기 설정", font=FONT_CARD_TITLE, text_color=TEXT_MAIN).pack(anchor="w", pady=(0, 6))
 
         self.sw_crop = ctk.CTkSwitch(
             self.trim_section, text="빈 여백 자동 자르기", font=FONT_DEFAULT,
@@ -300,7 +306,7 @@ class PreviewWindow(ctk.CTkToplevel):
             bottom_act, text="변경사항 적용", height=40, corner_radius=8,
             fg_color=("#E2E8F0", "#262936"), hover_color=("#CBD5E1", "#323646"),
             text_color=TEXT_MAIN, border_width=1, border_color=BORDER_COLOR,
-            font=("맑은 고딕", 13, "bold"), command=self.apply_pending_changes
+            font=FONT_DEFAULT_BOLD, command=self.apply_pending_changes
         )
         self.btn_apply.pack(fill="x", pady=(0, 8))
 
@@ -631,14 +637,17 @@ class TabBackground(ctk.CTkFrame):
         ctk.CTkLabel(header, text="배경 지우기", font=FONT_MAIN_TITLE, text_color=TEXT_MAIN).pack(anchor="w")
         ctk.CTkLabel(header, text="단색 배경 또는 일반 사진 모드로 여러 이미지의 배경을 깔끔하게 지웁니다.", font=FONT_DEFAULT, text_color=TEXT_SUB).pack(anchor="w", pady=(2, 0))
 
-        self.drop_card = ctk.CTkFrame(self, height=130, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR, cursor="hand2")
+        self.drop_card = ctk.CTkFrame(self, height=130, corner_radius=12, fg_color=BG_CARD, border_width=2, border_color=BORDER_COLOR, cursor="hand2")
         self.drop_card.pack(fill="x", pady=(0, 16))
         self.drop_card.pack_propagate(False)
 
-        lbl1 = ctk.CTkLabel(self.drop_card, text="+  작업할 이미지 파일 추가하기 (클릭 또는 드래그 앤 드롭)", font=("맑은 고딕", 15, "bold"), text_color=TEXT_MAIN)
+        lbl1 = ctk.CTkLabel(self.drop_card, text="+ 작업할 이미지 파일 추가하기 (클릭 또는 드래그 앤 드롭)", font=FONT_CARD_TITLE, text_color=TEXT_MAIN)
         lbl1.pack(pady=(22, 4))
         lbl2 = ctk.CTkLabel(self.drop_card, text="여러 폴더의 이미지를 나눠서 추가할 수 있으며, 아래 배지를 누르면 개별 취소할 수 있습니다", font=FONT_DEFAULT, text_color=TEXT_SUB)
         lbl2.pack()
+            
+        for widget in [self.drop_card, lbl1, lbl2]:
+            widget.bind("<Button-1>", lambda e: self.select_bg_files())
 
         self.file_badge = ctk.CTkButton(
             self.drop_card, text=" 현재 선택된 파일: 0개 ", height=28, corner_radius=6,
@@ -647,9 +656,6 @@ class TabBackground(ctk.CTkFrame):
         )
         self.file_badge.pack(pady=(10, 0))
 
-        for widget in [self.drop_card, lbl1, lbl2]:
-            widget.bind("<Button-1>", lambda e: self.select_bg_files())
-
         grid_frame = ctk.CTkFrame(self, fg_color="transparent")
         grid_frame.pack(fill="x", pady=(0, 14))
         grid_frame.grid_columnconfigure((0, 1), weight=1)
@@ -657,7 +663,8 @@ class TabBackground(ctk.CTkFrame):
         self.card_left = ctk.CTkFrame(grid_frame, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR)
         self.card_left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
 
-        ctk.CTkLabel(self.card_left, text="PROCESSING ENGINE", font=("맑은 고딕", 10, "bold"), text_color=ACCENT).pack(anchor="w", padx=18, pady=(16, 2))
+        # 폰트를 직접 하드코딩 적용
+        ctk.CTkLabel(self.card_left, text="PROCESSING ENGINE", font=("Pretendard Variable", 10, "bold"), text_color=ACCENT).pack(anchor="w", padx=18, pady=(16, 2))
         lbl_mode_title = ctk.CTkLabel(self.card_left, text="작업 모드", font=FONT_CARD_TITLE, text_color=TEXT_MAIN)
         lbl_mode_title.pack(anchor="w", padx=18, pady=(0, 10))
 
@@ -718,7 +725,8 @@ class TabBackground(ctk.CTkFrame):
         self.card_right = ctk.CTkFrame(grid_frame, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR)
         self.card_right.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
 
-        ctk.CTkLabel(self.card_right, text="OUTPUT & EXPORT", font=("맑은 고딕", 10, "bold"), text_color=ACCENT).pack(anchor="w", padx=18, pady=(16, 2))
+        # 폰트를 직접 하드코딩 적용
+        ctk.CTkLabel(self.card_right, text="OUTPUT & EXPORT", font=("Pretendard Variable", 10, "bold"), text_color=ACCENT).pack(anchor="w", padx=18, pady=(16, 2))
         ctk.CTkLabel(self.card_right, text="내보내기 설정", font=FONT_CARD_TITLE, text_color=TEXT_MAIN).pack(anchor="w", padx=18, pady=(0, 8))
 
         self.crop_sw = ctk.CTkSwitch(self.card_right, text="빈 여백 자동 자르기", font=FONT_DEFAULT, text_color=TEXT_MAIN, progress_color=ACCENT)
@@ -754,17 +762,19 @@ class TabBackground(ctk.CTkFrame):
         self.bottom_action_box.grid_columnconfigure(0, weight=1)
         self.bottom_action_box.grid_columnconfigure(1, weight=2)
 
+        # 결과 미리보기 버튼 위계 정리 (투명 배경, 테두리 유지)
         self.bg_preview_btn = ctk.CTkButton(
             self.bottom_action_box, text="결과 미리보기", height=48, corner_radius=10,
-            font=FONT_CARD_TITLE, fg_color=BG_CARD, hover_color=BORDER_COLOR,
-            text_color=TEXT_MAIN, border_width=1, border_color=BORDER_COLOR,
+            font=FONT_CARD_TITLE, fg_color="transparent", hover_color=BG_INNER,
+            text_color=TEXT_MAIN, border_width=2, border_color=BORDER_COLOR,
             command=lambda: self.start_bg_process(open_preview=True)
         )
         self.bg_preview_btn.grid(row=0, column=0, sticky="ew", padx=(0, 8))
 
+        # 메인 버튼 디자인 확립 (✨ 이모지 추가 및 가장 큰 폰트 적용)
         self.bg_run_btn = ctk.CTkButton(
-            self.bottom_action_box, text="일괄 배경 제거 및 변환 시작", height=48, corner_radius=10,
-            font=("맑은 고딕", 15, "bold"), fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            self.bottom_action_box, text="✨ 일괄 배경 제거 및 변환 시작", height=48, corner_radius=10,
+            font=FONT_MAIN_TITLE, fg_color=ACCENT, hover_color=ACCENT_HOVER,
             text_color="#FFFFFF", command=lambda: self.start_bg_process(open_preview=False)
         )
         self.bg_run_btn.grid(row=0, column=1, sticky="ew", padx=(8, 0))
@@ -943,7 +953,7 @@ class TabBackground(ctk.CTkFrame):
 
         if not active_formats:
             self.card_right.configure(border_color=ERROR_COLOR, border_width=2)
-            self.fmt_label.configure(text="! 저장할 형식(확장자)을 1개 이상 선택해주세요", text_color=ERROR_COLOR, font=("맑은 고딕", 12, "bold"))
+            self.fmt_label.configure(text="! 저장할 형식(확장자)을 1개 이상 선택해주세요", text_color=ERROR_COLOR, font=("Pretendard Variable", 12, "bold"))
             for btn in self.format_buttons.values():
                 btn.configure(border_color=ERROR_COLOR)
             has_error = True
@@ -965,9 +975,9 @@ class TabBackground(ctk.CTkFrame):
         file_names = [os.path.basename(p) for p in self.bg_file_list]
         self.app.floating_prog.start(file_names)
 
-        self.app.engine_dot.configure(text="● AI 엔진 연산 중 (화면 멈춤 정상)...", text_color=WARN_COLOR)
+        # 복구된 텍스트에도 ✨ 이모지 고정 적용 완료
         self.bg_preview_btn.configure(state="disabled")
-        self.bg_run_btn.configure(state="disabled", text="AI 연산 진행 중 (화면 멈춤 정상)...")
+        self.bg_run_btn.configure(state="disabled", text="✨ AI 연산 진행 중 (화면 멈춤 정상)...")
 
         def worker():
             total = len(self.bg_file_list)
@@ -1035,18 +1045,16 @@ class TabBackground(ctk.CTkFrame):
     def on_preview_ready(self, preview_items, active_formats):
         self.is_processing = False
         self.app.floating_prog.stop()
-        self.app.engine_dot.configure(text="● Modular Engine Ready", text_color=SUCCESS_COLOR)
         self.bg_preview_btn.configure(state="normal")
-        self.bg_run_btn.configure(state="normal", text="일괄 배경 제거 및 변환 시작")
+        self.bg_run_btn.configure(state="normal", text="✨ 일괄 배경 제거 및 변환 시작")
 
         self.preview_window = PreviewWindow(self, preview_items, active_formats)
 
     def on_bg_complete(self, total, out_dir):
         self.is_processing = False
         self.app.floating_prog.stop()
-        self.app.engine_dot.configure(text="● Modular Engine Ready", text_color=SUCCESS_COLOR)
         self.bg_preview_btn.configure(state="normal")
-        self.bg_run_btn.configure(state="normal", text="일괄 배경 제거 및 변환 시작")
+        self.bg_run_btn.configure(state="normal", text="✨ 일괄 배경 제거 및 변환 시작")
 
         messagebox.showinfo(
             "변환 완료",
@@ -1058,9 +1066,8 @@ class TabBackground(ctk.CTkFrame):
     def on_bg_error(self, err_msg):
         self.is_processing = False
         self.app.floating_prog.stop()
-        self.app.engine_dot.configure(text="● Engine Error", text_color=ERROR_COLOR)
         self.bg_preview_btn.configure(state="normal")
-        self.bg_run_btn.configure(state="normal", text="일괄 배경 제거 및 변환 시작")
+        self.bg_run_btn.configure(state="normal", text="✨ 일괄 배경 제거 및 변환 시작")
         messagebox.showerror("오류 발생", err_msg)
 
     def toggle_format(self, fmt):

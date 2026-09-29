@@ -33,17 +33,17 @@ class TabSettings(ctk.CTkFrame):
 
         ctk.CTkButton(
             dir_box, text="폴더 선택", width=85, height=34, corner_radius=6,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER, font=FONT_DEFAULT_BOLD,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER, font=FONT_DEFAULT_BOLD, text_color="#FFFFFF",
             command=self.choose_custom_out_dir
         ).pack(side="left", padx=(0, 6))
 
         ctk.CTkButton(
             dir_box, text="기본값", width=65, height=34, corner_radius=6,
-            fg_color=BG_INNER, text_color=TEXT_MAIN, hover_color=BORDER_COLOR, font=FONT_DEFAULT,
+            fg_color="transparent", text_color=TEXT_MAIN, hover_color=BG_INNER, font=FONT_DEFAULT, border_width=1, border_color=BORDER_COLOR,
             command=self.clear_custom_out_dir
         ).pack(side="left")
 
-        # 2. 화면 테마 모드 (독립형 버튼으로 완벽 교체 및 실시간 테마 적용)
+        # 2. 화면 테마 모드
         row2 = ctk.CTkFrame(card, fg_color="transparent")
         row2.pack(fill="x", padx=22, pady=12)
         ctk.CTkLabel(row2, text="2. 화면 테마 모드", font=FONT_CARD_TITLE, text_color=TEXT_MAIN).pack(side="left")
@@ -85,7 +85,6 @@ class TabSettings(ctk.CTkFrame):
         self.entry_suffix.pack(side="right")
         self.entry_suffix.bind("<KeyRelease>", self.on_change_suffix)
 
-        # 초기 테마 버튼 색상 세팅
         self.update_theme_buttons()
 
     def choose_custom_out_dir(self):
@@ -111,10 +110,10 @@ class TabSettings(ctk.CTkFrame):
         current = self.app.settings.get("theme", "dark")
         if current == "dark":
             self.btn_dark.configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER, border_width=0)
-            self.btn_light.configure(fg_color=BG_INNER, text_color=TEXT_SUB, hover_color=BORDER_COLOR, border_width=1, border_color=BORDER_COLOR)
+            self.btn_light.configure(fg_color="transparent", text_color=TEXT_MAIN, hover_color=BG_INNER, border_width=1, border_color=BORDER_COLOR)
         else:
             self.btn_light.configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER, border_width=0)
-            self.btn_dark.configure(fg_color=BG_INNER, text_color=TEXT_SUB, hover_color=BORDER_COLOR, border_width=1, border_color=BORDER_COLOR)
+            self.btn_dark.configure(fg_color="transparent", text_color=TEXT_MAIN, hover_color=BG_INNER, border_width=1, border_color=BORDER_COLOR)
 
     def on_toggle_auto_open(self):
         self.app.settings["auto_open_folder"] = bool(self.sw_auto_open.get())

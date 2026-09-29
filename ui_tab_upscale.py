@@ -132,8 +132,8 @@ class UpPreviewWindow(ctk.CTkToplevel):
         
         btn_row = ctk.CTkFrame(top_bar, fg_color="transparent")
         btn_row.pack(side="right", padx=22, pady=10)
-        ctk.CTkButton(btn_row, text="전체 저장", width=100, height=32, corner_radius=6, font=FONT_DEFAULT_BOLD, fg_color=ACCENT, command=self.save_all_items).pack(side="right")
-        ctk.CTkButton(btn_row, text="개별 저장", width=88, height=32, corner_radius=6, font=FONT_DEFAULT_BOLD, fg_color=("#E2E8F0", "#262936"), text_color=TEXT_MAIN, command=self.save_current_item).pack(side="right", padx=8)
+        ctk.CTkButton(btn_row, text="전체 저장", width=100, height=32, corner_radius=6, font=FONT_DEFAULT_BOLD, fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER, command=self.save_all_items).pack(side="right")
+        ctk.CTkButton(btn_row, text="개별 저장", width=88, height=32, corner_radius=6, font=FONT_DEFAULT_BOLD, fg_color=("#E2E8F0", "#262936"), hover_color=("#CBD5E1", "#323646"), text_color=TEXT_MAIN, command=self.save_current_item).pack(side="right", padx=8)
 
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.pack(fill="both", expand=True, padx=22, pady=18)
@@ -141,17 +141,17 @@ class UpPreviewWindow(ctk.CTkToplevel):
         zoom_bar = ctk.CTkFrame(body, fg_color="transparent")
         zoom_bar.pack(fill="x", pady=(0, 10))
         
-        ctk.CTkButton(zoom_bar, text="◀ 이전", width=60, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, command=self.prev_item).pack(side="left", padx=2)
+        ctk.CTkButton(zoom_bar, text="◀ 이전", width=60, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, hover_color=BG_INNER, command=self.prev_item).pack(side="left", padx=2)
         self.lbl_page = ctk.CTkLabel(zoom_bar, text="1 / 1", font=FONT_DEFAULT_BOLD, text_color=TEXT_MAIN, width=40)
         self.lbl_page.pack(side="left", padx=4)
-        ctk.CTkButton(zoom_bar, text="다음 ▶", width=60, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, command=self.next_item).pack(side="left", padx=(2, 16))
+        ctk.CTkButton(zoom_bar, text="다음 ▶", width=60, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, hover_color=BG_INNER, command=self.next_item).pack(side="left", padx=(2, 16))
         
         ctk.CTkLabel(zoom_bar, text="슬라이더: 화면 비교  |  Spacebar+드래그: 화면 이동", font=FONT_SMALL, text_color=TEXT_SUB).pack(side="left")
         
-        ctk.CTkButton(zoom_bar, text="1:1", width=44, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, command=lambda: self.canvas.zoom_1to1()).pack(side="right", padx=2)
-        ctk.CTkButton(zoom_bar, text="맞춤", width=44, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, command=lambda: self.canvas.fit_to_screen()).pack(side="right", padx=2)
-        ctk.CTkButton(zoom_bar, text="-", width=36, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, command=lambda: self.canvas.zoom_out()).pack(side="right", padx=2)
-        ctk.CTkButton(zoom_bar, text="+", width=36, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, command=lambda: self.canvas.zoom_in()).pack(side="right", padx=(16, 2))
+        ctk.CTkButton(zoom_bar, text="1:1", width=44, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, hover_color=BG_INNER, command=lambda: self.canvas.zoom_1to1()).pack(side="right", padx=2)
+        ctk.CTkButton(zoom_bar, text="맞춤", width=44, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, hover_color=BG_INNER, command=lambda: self.canvas.fit_to_screen()).pack(side="right", padx=2)
+        ctk.CTkButton(zoom_bar, text="-", width=36, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, hover_color=BG_INNER, command=lambda: self.canvas.zoom_out()).pack(side="right", padx=2)
+        ctk.CTkButton(zoom_bar, text="+", width=36, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, hover_color=BG_INNER, command=lambda: self.canvas.zoom_in()).pack(side="right", padx=(16, 2))
         
         self.btn_view_orig = ctk.CTkButton(zoom_bar, text="원본", width=50, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, text_color=TEXT_MAIN, hover_color=BG_INNER, font=FONT_SMALL_BOLD, command=lambda: self.on_view_change("toggle_orig"))
         self.btn_view_orig.pack(side="right", padx=2)
@@ -227,14 +227,17 @@ class TabUpscale(ctk.CTkFrame):
         ctk.CTkLabel(header, text="이미지 업스케일링", font=FONT_MAIN_TITLE, text_color=TEXT_MAIN).pack(anchor="w")
         ctk.CTkLabel(header, text="저해상도 이미지의 깨진 픽셀과 노이즈를 제거하고 최대 4배까지 선명하게 확대합니다.", font=FONT_DEFAULT, text_color=TEXT_SUB).pack(anchor="w", pady=(2, 0))
 
-        self.drop_card = ctk.CTkFrame(self, height=130, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR, cursor="hand2")
+        self.drop_card = ctk.CTkFrame(self, height=130, corner_radius=12, fg_color=BG_CARD, border_width=2, border_color=BORDER_COLOR, cursor="hand2")
         self.drop_card.pack(fill="x", pady=(0, 16))
         self.drop_card.pack_propagate(False)
 
-        lbl1 = ctk.CTkLabel(self.drop_card, text="+  화질을 높일 이미지 파일 추가하기 (클릭 또는 드래그 앤 드롭)", font=FONT_CARD_TITLE, text_color=TEXT_MAIN)
+        lbl1 = ctk.CTkLabel(self.drop_card, text="+ 작업할 이미지 파일 추가하기 (클릭 또는 드래그 앤 드롭)", font=FONT_CARD_TITLE, text_color=TEXT_MAIN)
         lbl1.pack(pady=(22, 4))
         lbl2 = ctk.CTkLabel(self.drop_card, text="여러 폴더의 이미지를 나눠서 추가할 수 있으며, 아래 배지를 누르면 개별 취소할 수 있습니다", font=FONT_DEFAULT, text_color=TEXT_SUB)
         lbl2.pack()
+
+        for widget in [self.drop_card, lbl1, lbl2]:
+            widget.bind("<Button-1>", lambda e: self.select_up_files())
 
         self.file_badge = ctk.CTkButton(
             self.drop_card, text=" 현재 선택된 파일: 0개 ", height=28, corner_radius=6,
@@ -243,9 +246,6 @@ class TabUpscale(ctk.CTkFrame):
         )
         self.file_badge.pack(pady=(10, 0))
 
-        for widget in [self.drop_card, lbl1, lbl2]:
-            widget.bind("<Button-1>", lambda e: self.select_up_files())
-
         up_grid = ctk.CTkFrame(self, fg_color="transparent")
         up_grid.pack(fill="x", pady=(0, 14))
         up_grid.grid_columnconfigure((0, 1), weight=1)
@@ -253,7 +253,7 @@ class TabUpscale(ctk.CTkFrame):
         up_left = ctk.CTkFrame(up_grid, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR)
         up_left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
 
-        ctk.CTkLabel(up_left, text="AI UPSCALE ENGINE", font=("맑은 고딕", 10, "bold"), text_color=ACCENT).pack(anchor="w", padx=18, pady=(16, 2))
+        ctk.CTkLabel(up_left, text="AI UPSCALE ENGINE", font=("Pretendard Variable", 10, "bold"), text_color=ACCENT).pack(anchor="w", padx=18, pady=(16, 2))
         ctk.CTkLabel(up_left, text="AI 처리 모델", font=FONT_CARD_TITLE, text_color=TEXT_MAIN).pack(anchor="w", padx=18, pady=(0, 12))
 
         engine_row = ctk.CTkFrame(up_left, fg_color="transparent")
@@ -291,7 +291,7 @@ class TabUpscale(ctk.CTkFrame):
         up_right = ctk.CTkFrame(up_grid, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR)
         up_right.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
 
-        ctk.CTkLabel(up_right, text="RESOLUTION & DETAIL", font=("맑은 고딕", 10, "bold"), text_color=ACCENT).pack(anchor="w", padx=18, pady=(16, 2))
+        ctk.CTkLabel(up_right, text="RESOLUTION & DETAIL", font=("Pretendard Variable", 10, "bold"), text_color=ACCENT).pack(anchor="w", padx=18, pady=(16, 2))
         ctk.CTkLabel(up_right, text="해상도 확대", font=FONT_CARD_TITLE, text_color=TEXT_MAIN).pack(anchor="w", padx=18, pady=(0, 12))
 
         scale_row = ctk.CTkFrame(up_right, fg_color="transparent")
@@ -334,15 +334,15 @@ class TabUpscale(ctk.CTkFrame):
 
         self.up_preview_btn = ctk.CTkButton(
             self.bottom_action_box, text="결과 미리보기", height=48, corner_radius=10,
-            font=FONT_CARD_TITLE, fg_color=BG_CARD, hover_color=BORDER_COLOR,
-            text_color=TEXT_MAIN, border_width=1, border_color=BORDER_COLOR,
+            font=FONT_CARD_TITLE, fg_color="transparent", hover_color=BG_INNER,
+            text_color=TEXT_MAIN, border_width=2, border_color=BORDER_COLOR,
             command=lambda: self.start_upscale(True)
         )
         self.up_preview_btn.grid(row=0, column=0, sticky="ew", padx=(0, 8))
 
         self.up_run_btn = ctk.CTkButton(
-            self.bottom_action_box, text="업스케일링 시작", height=48, corner_radius=10,
-            font=FONT_CARD_TITLE, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            self.bottom_action_box, text="✨ 업스케일링 시작", height=48, corner_radius=10,
+            font=FONT_MAIN_TITLE, fg_color=ACCENT, hover_color=ACCENT_HOVER,
             text_color="#FFFFFF", command=lambda: self.start_upscale(False)
         )
         self.up_run_btn.grid(row=0, column=1, sticky="ew", padx=(8, 0))
@@ -486,9 +486,11 @@ class TabUpscale(ctk.CTkFrame):
         if not self.up_file_list:
             return self.show_file_card_warning("! 먼저 작업할 이미지 파일을 선택해주세요")
             
-        self.app.engine_dot.configure(text="● 업스케일 연산 중...", text_color=WARN_COLOR)
         file_names = [os.path.basename(p) for p in self.up_file_list]
         self.app.floating_prog.start(file_names)
+        
+        self.up_run_btn.configure(text="✨ 업스케일 연산 진행 중...", state="disabled")
+        self.up_preview_btn.configure(state="disabled")
 
         def worker():
             preview_items = []
@@ -517,12 +519,16 @@ class TabUpscale(ctk.CTkFrame):
                 self.after(0, lambda: self.on_complete(preview_items, last_dir))
             except Exception as e:
                 self.after(0, lambda err=str(e): messagebox.showerror("오류", err))
+                self.after(0, lambda: self.up_run_btn.configure(text="✨ 업스케일링 시작", state="normal"))
+                self.after(0, lambda: self.up_preview_btn.configure(state="normal"))
                 
         threading.Thread(target=worker, daemon=True).start()
 
     def on_complete(self, preview_items, last_dir):
         self.app.floating_prog.stop()
-        self.app.engine_dot.configure(text="● Modular Engine Ready", text_color=SUCCESS_COLOR)
+        self.up_run_btn.configure(text="✨ 업스케일링 시작", state="normal")
+        self.up_preview_btn.configure(state="normal")
+        
         if preview_items:
             UpPreviewWindow(self, preview_items)
         else:

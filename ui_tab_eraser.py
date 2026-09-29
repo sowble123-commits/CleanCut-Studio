@@ -23,6 +23,10 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
         self.is_processing = False
         
         self.title("매직 지우개 작업 공간")
+        self.lift()
+        self.focus_force()              
+        self.after(10, lambda: self.attributes("-topmost", True))
+        self.after(200, lambda: self.attributes("-topmost", False))
         self.geometry("1000x720")
         self.resizable(True, True)
         self.configure(fg_color=BG_MAIN)
@@ -82,10 +86,10 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
         bot_bar = ctk.CTkFrame(self, fg_color="transparent")
         bot_bar.pack(fill="x", pady=18)
         
-        self.btn_run = ctk.CTkButton(bot_bar, text="칠한 영역 지우기 시작", height=46, corner_radius=10, font=FONT_CARD_TITLE, fg_color=ACCENT, hover_color=ACCENT_HOVER, command=self.run_eraser)
+        self.btn_run = ctk.CTkButton(bot_bar, text="✨ 칠한 영역 지우기 시작", height=48, corner_radius=10, font=FONT_MAIN_TITLE, fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color="#FFFFFF", command=self.run_eraser)
         self.btn_run.pack(side="left", fill="x", expand=True, padx=(0, 6))
         
-        self.btn_save = ctk.CTkButton(bot_bar, text="결과물 저장하기", width=160, height=46, corner_radius=10, font=FONT_CARD_TITLE, fg_color="#262936", hover_color="#323646", command=self.save_result)
+        self.btn_save = ctk.CTkButton(bot_bar, text="결과물 저장하기", width=160, height=48, corner_radius=10, font=FONT_CARD_TITLE, fg_color="#262936", hover_color="#323646", command=self.save_result)
         self.btn_save.pack(side="right", padx=(6, 0))
         self.btn_save.configure(state="disabled")
 
@@ -125,7 +129,7 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
             return
 
         self.is_processing = True
-        self.btn_run.configure(state="disabled", text="복원 연산 중...")
+        self.btn_run.configure(state="disabled", text="✨ 복원 연산 중...")
         self.floating_prog.start([os.path.basename(self.current_image_path)])
 
         def worker():
@@ -146,7 +150,7 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
         self.is_processing = False
         self.result_image = result_pil
         self.floating_prog.stop()
-        self.btn_run.configure(state="normal", text="칠한 영역 지우기 시작")
+        self.btn_run.configure(state="normal", text="✨ 칠한 영역 지우기 시작")
         self.btn_save.configure(state="normal", fg_color=ACCENT, hover_color=ACCENT_HOVER)
         
         self.canvas.set_comparison(self.original_image, self.result_image, mode="toggle_res")
@@ -163,7 +167,7 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
     def on_process_error(self, err_msg):
         self.is_processing = False
         self.floating_prog.stop()
-        self.btn_run.configure(state="normal", text="칠한 영역 지우기 시작")
+        self.btn_run.configure(state="normal", text="✨ 칠한 영역 지우기 시작")
         messagebox.showerror("오류 발생", err_msg, parent=self)
 
     def save_result(self):
@@ -192,7 +196,7 @@ class TabEraser(ctk.CTkFrame):
         ctk.CTkLabel(header, text="매직 지우개", font=FONT_MAIN_TITLE, text_color=TEXT_MAIN).pack(anchor="w")
         ctk.CTkLabel(header, text="지우고 싶은 글씨나 로고 위를 마우스로 칠하면 주변 배경에 맞춰 자연스럽게 복원합니다.", font=FONT_DEFAULT, text_color=TEXT_SUB).pack(anchor="w", pady=(2, 0))
 
-        self.drop_card = ctk.CTkFrame(self, height=130, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR, cursor="hand2")
+        self.drop_card = ctk.CTkFrame(self, height=130, corner_radius=12, fg_color=BG_CARD, border_width=2, border_color=BORDER_COLOR, cursor="hand2")
         self.drop_card.pack(fill="x", pady=(20, 16))
         self.drop_card.pack_propagate(False)
 
@@ -200,7 +204,7 @@ class TabEraser(ctk.CTkFrame):
         lbl1.pack(pady=(22, 10))
         
         btn_open = ctk.CTkButton(
-            self.drop_card, text="이미지 불러오기 및 작업 공간 열기", height=36, width=240, corner_radius=8,
+            self.drop_card, text="✨ 이미지 불러오기 및 작업 공간 열기", height=36, width=280, corner_radius=8,
             font=FONT_DEFAULT_BOLD, fg_color=ACCENT, hover_color=ACCENT_HOVER, command=self.open_workspace
         )
         btn_open.pack()

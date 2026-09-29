@@ -1,5 +1,5 @@
 === CleanCut Studio Pro - AI 인수인계 마스터 문서 ===
-생성 일시: 2026-09-29 23:03:58
+생성 일시: 2026-09-30 01:59:37
 
 === [1] 현재 프로젝트 파일 구조 ===
     📄 .gitignore
@@ -389,6 +389,7 @@ def save_upscaled_image(pil_image, original_path, custom_out_dir="", filename_su
 ============================================================
 import os
 import json
+import queue
 import customtkinter as ctk
 
 try:
@@ -411,7 +412,7 @@ class CleanCutApp(ctk.CTk):
         ctk.set_appearance_mode(self.settings.get("theme", "dark"))
 
         self.title("CleanCut Studio Pro")
-        self.geometry("880x600")
+        self.geometry("920x640") # 뷰포트를 살짝 넓혀 쾌적한 작업 공간 확보
         self.resizable(False, False)
         self.configure(fg_color=BG_MAIN)
 
@@ -420,6 +421,10 @@ class CleanCutApp(ctk.CTk):
 
         self.current_page_name = "bg"
         self.floating_prog = FloatingProgressWidget(self)
+
+        # [안전 장치] 드래그 앤 드롭 전용 우체통(Queue) 생성 및 확인 루틴 시작
+        self.drop_queue = queue.Queue()
+        self.check_drop_queue() 
 
         self.setup_sidebar()
         self.setup_pages()
@@ -430,6 +435,17 @@ class CleanCutApp(ctk.CTk):
                 windnd.hook_dropfiles(self, func=self.on_drop_files)
             except Exception:
                 pass
+
+    def check_drop_queue(self):
+        """0.1초마다 우체통(Queue)을 확인해서 파일이 들어오면 메인 화면(UI)에서 안전하게 처리합니다."""
+        try:
+            while True:
+                dropped_items = self.drop_queue.get_nowait()
+                self._process_drop(dropped_items)
+        except queue.Empty:
+            pass
+        finally:
+            self.after(100, self.check_drop_queue)
 
     def shake_window(self):
         x = self.winfo_x()
@@ -468,54 +484,59 @@ class CleanCutApp(ctk.CTk):
             self.settings["filename_suffix"] = self.page_settings.entry_suffix.get().strip()
 
     def setup_sidebar(self):
-        self.sidebar = ctk.CTkFrame(self, width=220, corner_radius=0, fg_color=BG_SIDEBAR, border_width=1, border_color=BORDER_COLOR)
+        # 사이드바 너비를 240으로 고정
+        self.sidebar = ctk.CTkFrame(self, width=240, corner_radius=0, fg_color=BG_SIDEBAR, border_width=1, border_color=BORDER_COLOR)
         self.sidebar.grid(row=0, column=0, sticky="nsew")
+        
+        # 내부 컨텐츠에 의해 사이드바가 늘어났다 줄어드는 현상(지진) 원천 차단
         self.sidebar.grid_propagate(False)
+        self.sidebar.pack_propagate(False)
 
         title_box = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        title_box.pack(fill="x", padx=24, pady=(32, 28))
+        title_box.pack(fill="x", padx=24, pady=(36, 32))
         ctk.CTkLabel(title_box, text="CLEANCUT", font=FONT_MAIN_TITLE, text_color=TEXT_MAIN).pack(anchor="w")
-        ctk.CTkLabel(title_box, text="ALL-IN-ONE IMAGE STUDIO", font=("맑은 고딕", 10, "bold"), text_color=ACCENT).pack(anchor="w")
+        ctk.CTkLabel(title_box, text="STUDIO PRO ENVIRONMENT", font=("Pretendard Variable", 10, "bold"), text_color=ACCENT).pack(anchor="w")
 
-        ctk.CTkLabel(self.sidebar, text="WORKSPACE", font=("맑은 고딕", 10, "bold"), text_color=TEXT_SUB).pack(anchor="w", padx=24, pady=(0, 8))
+        ctk.CTkLabel(self.sidebar, text="WORKSPACE", font=("Pretendard Variable", 10, "bold"), text_color=TEXT_SUB).pack(anchor="w", padx=24, pady=(0, 8))
 
         self.nav_bg_btn = ctk.CTkButton(
-            self.sidebar, text="  1. 배경 지우기", anchor="w", height=42, corner_radius=8,
+            self.sidebar, text=" 🪄 배경 지우기", anchor="w", height=44, corner_radius=8,
             font=FONT_CARD_TITLE, command=lambda: self.select_page("bg")
         )
         self.nav_bg_btn.pack(fill="x", padx=16, pady=4)
 
         self.nav_eraser_btn = ctk.CTkButton(
-            self.sidebar, text="  2. 매직 지우개", anchor="w", height=42, corner_radius=8,
+            self.sidebar, text=" 🧽 매직 지우개", anchor="w", height=44, corner_radius=8,
             font=FONT_CARD_TITLE, command=lambda: self.select_page("eraser")
         )
         self.nav_eraser_btn.pack(fill="x", padx=16, pady=4)
 
         self.nav_upscale_btn = ctk.CTkButton(
-            self.sidebar, text="  3. 이미지 업스케일링", anchor="w", height=42, corner_radius=8,
+            self.sidebar, text=" 🚀 이미지 업스케일링", anchor="w", height=44, corner_radius=8,
             font=FONT_CARD_TITLE, command=lambda: self.select_page("upscale")
         )
         self.nav_upscale_btn.pack(fill="x", padx=16, pady=4)
 
         bottom_box = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        bottom_box.pack(side="bottom", fill="x", padx=16, pady=20)
+        bottom_box.pack(side="bottom", fill="x", padx=16, pady=24)
 
         self.nav_settings_btn = ctk.CTkButton(
-            bottom_box, text="  ⚙  환경 설정", anchor="w", height=38, corner_radius=8,
+            bottom_box, text=" ⚙️ 환경 설정", anchor="w", height=40, corner_radius=8,
             font=FONT_DEFAULT_BOLD, fg_color="transparent", text_color=TEXT_SUB,
             hover_color=BG_INNER, command=lambda: self.select_page("settings")
         )
-        self.nav_settings_btn.pack(fill="x", pady=(0, 12))
+        self.nav_settings_btn.pack(fill="x", pady=(0, 16))
 
         status_box = ctk.CTkFrame(bottom_box, fg_color="transparent")
         status_box.pack(fill="x", padx=8)
-        self.engine_dot = ctk.CTkLabel(status_box, text="● Modular Engine Ready", font=FONT_SMALL, text_color=SUCCESS_COLOR)
+        
+        self.engine_dot = ctk.CTkLabel(status_box, text="✨ Modular Engine Ready", font=FONT_SMALL_BOLD, text_color=SUCCESS_COLOR, width=190, anchor="w")
         self.engine_dot.pack(anchor="w")
         ctk.CTkLabel(status_box, text="Version 1.0.0 Pro", font=FONT_SMALL, text_color=TEXT_SUB).pack(anchor="w")
 
     def setup_pages(self):
         self.container = ctk.CTkFrame(self, fg_color="transparent")
-        self.container.grid(row=0, column=1, sticky="nsew", padx=28, pady=24)
+        self.container.grid(row=0, column=1, sticky="nsew", padx=32, pady=28)
         self.container.grid_columnconfigure(0, weight=1)
         self.container.grid_rowconfigure(0, weight=1)
 
@@ -528,23 +549,31 @@ class CleanCutApp(ctk.CTk):
         self.current_page_name = page_name
         for page in [self.page_bg, self.page_eraser, self.page_upscale, self.page_settings]:
             page.pack_forget()
+            
         for btn in [self.nav_bg_btn, self.nav_eraser_btn, self.nav_upscale_btn, self.nav_settings_btn]:
-            btn.configure(fg_color="transparent", text_color=TEXT_SUB, hover_color=BG_INNER)
+            btn.configure(fg_color="transparent", text_color=TEXT_SUB, hover_color=BG_INNER, border_width=0)
 
+        active_config = {"fg_color": BG_CARD, "text_color": ACCENT, "border_width": 1, "border_color": BORDER_COLOR}
+        
         if page_name == "bg":
             self.page_bg.pack(fill="both", expand=True)
-            self.nav_bg_btn.configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER)
+            self.nav_bg_btn.configure(**active_config)
         elif page_name == "eraser":
             self.page_eraser.pack(fill="both", expand=True)
-            self.nav_eraser_btn.configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER)
+            self.nav_eraser_btn.configure(**active_config)
         elif page_name == "upscale":
             self.page_upscale.pack(fill="both", expand=True)
-            self.nav_upscale_btn.configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER)
+            self.nav_upscale_btn.configure(**active_config)
         elif page_name == "settings":
             self.page_settings.pack(fill="both", expand=True)
-            self.nav_settings_btn.configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER)
+            self.nav_settings_btn.configure(**active_config)
 
     def on_drop_files(self, dropped_items):
+        # 윈도우 OS가 파일을 던지면, 묻지도 따지지도 않고 우체통에만 쏙 넣고 빠집니다 (UI 충돌 원천 차단)
+        self.drop_queue.put(dropped_items)
+
+    def _process_drop(self, dropped_items):
+        # 안전한 메인 스레드 위에서 파일 분배 진행
         if self.current_page_name == "bg" and hasattr(self.page_bg, "on_drop_files"):
             self.page_bg.on_drop_files(dropped_items)
         elif self.current_page_name == "eraser" and hasattr(self.page_eraser, "on_drop_files"):
@@ -1274,6 +1303,12 @@ class PreviewWindow(ctk.CTkToplevel):
         self.title("변환 결과 미리보기 및 개별 수정")
         self.geometry("1000x720")
         self.resizable(True, True)
+        
+        self.lift()
+        self.focus_force()
+        self.after(10, lambda: self.attributes("-topmost", True))
+        self.after(200, lambda: self.attributes("-topmost", False))
+        
         self.configure(fg_color=BG_MAIN)
         
         self.floating_prog = FloatingProgressWidget(self)
@@ -1294,7 +1329,7 @@ class PreviewWindow(ctk.CTkToplevel):
 
         title_row = ctk.CTkFrame(top_bar, fg_color="transparent")
         title_row.pack(side="left", padx=22)
-        self.lbl_filename = ctk.CTkLabel(title_row, text="", font=("맑은 고딕", 15, "bold"), text_color=TEXT_MAIN)
+        self.lbl_filename = ctk.CTkLabel(title_row, text="", font=FONT_CARD_TITLE, text_color=TEXT_MAIN)
         self.lbl_filename.pack(side="left")
         self.lbl_saved_badge = ctk.CTkLabel(
             title_row, text=" ● 저장됨 ", font=FONT_SMALL_BOLD,
@@ -1356,7 +1391,7 @@ class PreviewWindow(ctk.CTkToplevel):
 
         opt_header = ctk.CTkFrame(right_card, fg_color="transparent")
         opt_header.pack(fill="x", padx=18, pady=(16, 6))
-        ctk.CTkLabel(opt_header, text="작업 모드", font=("맑은 고딕", 13, "bold"), text_color=TEXT_MAIN).pack(side="left")
+        ctk.CTkLabel(opt_header, text="작업 모드", font=FONT_CARD_TITLE, text_color=TEXT_MAIN).pack(side="left")
 
         self.btn_reset_opt = ctk.CTkButton(
             opt_header, text="↺ 원래대로", width=72, height=24, corner_radius=6,
@@ -1380,7 +1415,7 @@ class PreviewWindow(ctk.CTkToplevel):
             self.mode_btns[m_name] = b
 
         self.strength_section = ctk.CTkFrame(right_card, fg_color="transparent")
-        ctk.CTkLabel(self.strength_section, text="허용치 (단색 배경용)", font=("맑은 고딕", 13, "bold"), text_color=TEXT_MAIN).pack(anchor="w", pady=(0, 6))
+        ctk.CTkLabel(self.strength_section, text="허용치 (단색 배경용)", font=FONT_CARD_TITLE, text_color=TEXT_MAIN).pack(anchor="w", pady=(0, 6))
         str_row = ctk.CTkFrame(self.strength_section, fg_color="transparent")
         str_row.pack(fill="x", pady=(0, 12))
         str_row.grid_columnconfigure((0, 1, 2), weight=1, uniform="str_preview")
@@ -1400,7 +1435,7 @@ class PreviewWindow(ctk.CTkToplevel):
 
         self.trim_section = ctk.CTkFrame(right_card, fg_color="transparent")
         self.trim_section.pack(fill="x", padx=18, pady=(2, 8))
-        ctk.CTkLabel(self.trim_section, text="내보내기 설정", font=("맑은 고딕", 13, "bold"), text_color=TEXT_MAIN).pack(anchor="w", pady=(0, 6))
+        ctk.CTkLabel(self.trim_section, text="내보내기 설정", font=FONT_CARD_TITLE, text_color=TEXT_MAIN).pack(anchor="w", pady=(0, 6))
 
         self.sw_crop = ctk.CTkSwitch(
             self.trim_section, text="빈 여백 자동 자르기", font=FONT_DEFAULT,
@@ -1433,7 +1468,7 @@ class PreviewWindow(ctk.CTkToplevel):
             bottom_act, text="변경사항 적용", height=40, corner_radius=8,
             fg_color=("#E2E8F0", "#262936"), hover_color=("#CBD5E1", "#323646"),
             text_color=TEXT_MAIN, border_width=1, border_color=BORDER_COLOR,
-            font=("맑은 고딕", 13, "bold"), command=self.apply_pending_changes
+            font=FONT_DEFAULT_BOLD, command=self.apply_pending_changes
         )
         self.btn_apply.pack(fill="x", pady=(0, 8))
 
@@ -1764,14 +1799,17 @@ class TabBackground(ctk.CTkFrame):
         ctk.CTkLabel(header, text="배경 지우기", font=FONT_MAIN_TITLE, text_color=TEXT_MAIN).pack(anchor="w")
         ctk.CTkLabel(header, text="단색 배경 또는 일반 사진 모드로 여러 이미지의 배경을 깔끔하게 지웁니다.", font=FONT_DEFAULT, text_color=TEXT_SUB).pack(anchor="w", pady=(2, 0))
 
-        self.drop_card = ctk.CTkFrame(self, height=130, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR, cursor="hand2")
+        self.drop_card = ctk.CTkFrame(self, height=130, corner_radius=12, fg_color=BG_CARD, border_width=2, border_color=BORDER_COLOR, cursor="hand2")
         self.drop_card.pack(fill="x", pady=(0, 16))
         self.drop_card.pack_propagate(False)
 
-        lbl1 = ctk.CTkLabel(self.drop_card, text="+  작업할 이미지 파일 추가하기 (클릭 또는 드래그 앤 드롭)", font=("맑은 고딕", 15, "bold"), text_color=TEXT_MAIN)
+        lbl1 = ctk.CTkLabel(self.drop_card, text="+ 작업할 이미지 파일 추가하기 (클릭 또는 드래그 앤 드롭)", font=FONT_CARD_TITLE, text_color=TEXT_MAIN)
         lbl1.pack(pady=(22, 4))
         lbl2 = ctk.CTkLabel(self.drop_card, text="여러 폴더의 이미지를 나눠서 추가할 수 있으며, 아래 배지를 누르면 개별 취소할 수 있습니다", font=FONT_DEFAULT, text_color=TEXT_SUB)
         lbl2.pack()
+            
+        for widget in [self.drop_card, lbl1, lbl2]:
+            widget.bind("<Button-1>", lambda e: self.select_bg_files())
 
         self.file_badge = ctk.CTkButton(
             self.drop_card, text=" 현재 선택된 파일: 0개 ", height=28, corner_radius=6,
@@ -1780,9 +1818,6 @@ class TabBackground(ctk.CTkFrame):
         )
         self.file_badge.pack(pady=(10, 0))
 
-        for widget in [self.drop_card, lbl1, lbl2]:
-            widget.bind("<Button-1>", lambda e: self.select_bg_files())
-
         grid_frame = ctk.CTkFrame(self, fg_color="transparent")
         grid_frame.pack(fill="x", pady=(0, 14))
         grid_frame.grid_columnconfigure((0, 1), weight=1)
@@ -1790,7 +1825,8 @@ class TabBackground(ctk.CTkFrame):
         self.card_left = ctk.CTkFrame(grid_frame, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR)
         self.card_left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
 
-        ctk.CTkLabel(self.card_left, text="PROCESSING ENGINE", font=("맑은 고딕", 10, "bold"), text_color=ACCENT).pack(anchor="w", padx=18, pady=(16, 2))
+        # 폰트를 직접 하드코딩 적용
+        ctk.CTkLabel(self.card_left, text="PROCESSING ENGINE", font=("Pretendard Variable", 10, "bold"), text_color=ACCENT).pack(anchor="w", padx=18, pady=(16, 2))
         lbl_mode_title = ctk.CTkLabel(self.card_left, text="작업 모드", font=FONT_CARD_TITLE, text_color=TEXT_MAIN)
         lbl_mode_title.pack(anchor="w", padx=18, pady=(0, 10))
 
@@ -1851,7 +1887,8 @@ class TabBackground(ctk.CTkFrame):
         self.card_right = ctk.CTkFrame(grid_frame, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR)
         self.card_right.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
 
-        ctk.CTkLabel(self.card_right, text="OUTPUT & EXPORT", font=("맑은 고딕", 10, "bold"), text_color=ACCENT).pack(anchor="w", padx=18, pady=(16, 2))
+        # 폰트를 직접 하드코딩 적용
+        ctk.CTkLabel(self.card_right, text="OUTPUT & EXPORT", font=("Pretendard Variable", 10, "bold"), text_color=ACCENT).pack(anchor="w", padx=18, pady=(16, 2))
         ctk.CTkLabel(self.card_right, text="내보내기 설정", font=FONT_CARD_TITLE, text_color=TEXT_MAIN).pack(anchor="w", padx=18, pady=(0, 8))
 
         self.crop_sw = ctk.CTkSwitch(self.card_right, text="빈 여백 자동 자르기", font=FONT_DEFAULT, text_color=TEXT_MAIN, progress_color=ACCENT)
@@ -1887,17 +1924,19 @@ class TabBackground(ctk.CTkFrame):
         self.bottom_action_box.grid_columnconfigure(0, weight=1)
         self.bottom_action_box.grid_columnconfigure(1, weight=2)
 
+        # 결과 미리보기 버튼 위계 정리 (투명 배경, 테두리 유지)
         self.bg_preview_btn = ctk.CTkButton(
             self.bottom_action_box, text="결과 미리보기", height=48, corner_radius=10,
-            font=FONT_CARD_TITLE, fg_color=BG_CARD, hover_color=BORDER_COLOR,
-            text_color=TEXT_MAIN, border_width=1, border_color=BORDER_COLOR,
+            font=FONT_CARD_TITLE, fg_color="transparent", hover_color=BG_INNER,
+            text_color=TEXT_MAIN, border_width=2, border_color=BORDER_COLOR,
             command=lambda: self.start_bg_process(open_preview=True)
         )
         self.bg_preview_btn.grid(row=0, column=0, sticky="ew", padx=(0, 8))
 
+        # 메인 버튼 디자인 확립 (✨ 이모지 추가 및 가장 큰 폰트 적용)
         self.bg_run_btn = ctk.CTkButton(
-            self.bottom_action_box, text="일괄 배경 제거 및 변환 시작", height=48, corner_radius=10,
-            font=("맑은 고딕", 15, "bold"), fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            self.bottom_action_box, text="✨ 일괄 배경 제거 및 변환 시작", height=48, corner_radius=10,
+            font=FONT_MAIN_TITLE, fg_color=ACCENT, hover_color=ACCENT_HOVER,
             text_color="#FFFFFF", command=lambda: self.start_bg_process(open_preview=False)
         )
         self.bg_run_btn.grid(row=0, column=1, sticky="ew", padx=(8, 0))
@@ -2076,7 +2115,7 @@ class TabBackground(ctk.CTkFrame):
 
         if not active_formats:
             self.card_right.configure(border_color=ERROR_COLOR, border_width=2)
-            self.fmt_label.configure(text="! 저장할 형식(확장자)을 1개 이상 선택해주세요", text_color=ERROR_COLOR, font=("맑은 고딕", 12, "bold"))
+            self.fmt_label.configure(text="! 저장할 형식(확장자)을 1개 이상 선택해주세요", text_color=ERROR_COLOR, font=("Pretendard Variable", 12, "bold"))
             for btn in self.format_buttons.values():
                 btn.configure(border_color=ERROR_COLOR)
             has_error = True
@@ -2098,9 +2137,9 @@ class TabBackground(ctk.CTkFrame):
         file_names = [os.path.basename(p) for p in self.bg_file_list]
         self.app.floating_prog.start(file_names)
 
-        self.app.engine_dot.configure(text="● AI 엔진 연산 중 (화면 멈춤 정상)...", text_color=WARN_COLOR)
+        # 복구된 텍스트에도 ✨ 이모지 고정 적용 완료
         self.bg_preview_btn.configure(state="disabled")
-        self.bg_run_btn.configure(state="disabled", text="AI 연산 진행 중 (화면 멈춤 정상)...")
+        self.bg_run_btn.configure(state="disabled", text="✨ AI 연산 진행 중 (화면 멈춤 정상)...")
 
         def worker():
             total = len(self.bg_file_list)
@@ -2168,18 +2207,16 @@ class TabBackground(ctk.CTkFrame):
     def on_preview_ready(self, preview_items, active_formats):
         self.is_processing = False
         self.app.floating_prog.stop()
-        self.app.engine_dot.configure(text="● Modular Engine Ready", text_color=SUCCESS_COLOR)
         self.bg_preview_btn.configure(state="normal")
-        self.bg_run_btn.configure(state="normal", text="일괄 배경 제거 및 변환 시작")
+        self.bg_run_btn.configure(state="normal", text="✨ 일괄 배경 제거 및 변환 시작")
 
         self.preview_window = PreviewWindow(self, preview_items, active_formats)
 
     def on_bg_complete(self, total, out_dir):
         self.is_processing = False
         self.app.floating_prog.stop()
-        self.app.engine_dot.configure(text="● Modular Engine Ready", text_color=SUCCESS_COLOR)
         self.bg_preview_btn.configure(state="normal")
-        self.bg_run_btn.configure(state="normal", text="일괄 배경 제거 및 변환 시작")
+        self.bg_run_btn.configure(state="normal", text="✨ 일괄 배경 제거 및 변환 시작")
 
         messagebox.showinfo(
             "변환 완료",
@@ -2191,9 +2228,8 @@ class TabBackground(ctk.CTkFrame):
     def on_bg_error(self, err_msg):
         self.is_processing = False
         self.app.floating_prog.stop()
-        self.app.engine_dot.configure(text="● Engine Error", text_color=ERROR_COLOR)
         self.bg_preview_btn.configure(state="normal")
-        self.bg_run_btn.configure(state="normal", text="일괄 배경 제거 및 변환 시작")
+        self.bg_run_btn.configure(state="normal", text="✨ 일괄 배경 제거 및 변환 시작")
         messagebox.showerror("오류 발생", err_msg)
 
     def toggle_format(self, fmt):
@@ -2240,6 +2276,10 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
         self.is_processing = False
         
         self.title("매직 지우개 작업 공간")
+        self.lift()
+        self.focus_force()              
+        self.after(10, lambda: self.attributes("-topmost", True))
+        self.after(200, lambda: self.attributes("-topmost", False))
         self.geometry("1000x720")
         self.resizable(True, True)
         self.configure(fg_color=BG_MAIN)
@@ -2299,10 +2339,10 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
         bot_bar = ctk.CTkFrame(self, fg_color="transparent")
         bot_bar.pack(fill="x", pady=18)
         
-        self.btn_run = ctk.CTkButton(bot_bar, text="칠한 영역 지우기 시작", height=46, corner_radius=10, font=FONT_CARD_TITLE, fg_color=ACCENT, hover_color=ACCENT_HOVER, command=self.run_eraser)
+        self.btn_run = ctk.CTkButton(bot_bar, text="✨ 칠한 영역 지우기 시작", height=48, corner_radius=10, font=FONT_MAIN_TITLE, fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color="#FFFFFF", command=self.run_eraser)
         self.btn_run.pack(side="left", fill="x", expand=True, padx=(0, 6))
         
-        self.btn_save = ctk.CTkButton(bot_bar, text="결과물 저장하기", width=160, height=46, corner_radius=10, font=FONT_CARD_TITLE, fg_color="#262936", hover_color="#323646", command=self.save_result)
+        self.btn_save = ctk.CTkButton(bot_bar, text="결과물 저장하기", width=160, height=48, corner_radius=10, font=FONT_CARD_TITLE, fg_color="#262936", hover_color="#323646", command=self.save_result)
         self.btn_save.pack(side="right", padx=(6, 0))
         self.btn_save.configure(state="disabled")
 
@@ -2342,7 +2382,7 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
             return
 
         self.is_processing = True
-        self.btn_run.configure(state="disabled", text="복원 연산 중...")
+        self.btn_run.configure(state="disabled", text="✨ 복원 연산 중...")
         self.floating_prog.start([os.path.basename(self.current_image_path)])
 
         def worker():
@@ -2363,7 +2403,7 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
         self.is_processing = False
         self.result_image = result_pil
         self.floating_prog.stop()
-        self.btn_run.configure(state="normal", text="칠한 영역 지우기 시작")
+        self.btn_run.configure(state="normal", text="✨ 칠한 영역 지우기 시작")
         self.btn_save.configure(state="normal", fg_color=ACCENT, hover_color=ACCENT_HOVER)
         
         self.canvas.set_comparison(self.original_image, self.result_image, mode="toggle_res")
@@ -2380,7 +2420,7 @@ class EraserWorkspaceWindow(ctk.CTkToplevel):
     def on_process_error(self, err_msg):
         self.is_processing = False
         self.floating_prog.stop()
-        self.btn_run.configure(state="normal", text="칠한 영역 지우기 시작")
+        self.btn_run.configure(state="normal", text="✨ 칠한 영역 지우기 시작")
         messagebox.showerror("오류 발생", err_msg, parent=self)
 
     def save_result(self):
@@ -2409,7 +2449,7 @@ class TabEraser(ctk.CTkFrame):
         ctk.CTkLabel(header, text="매직 지우개", font=FONT_MAIN_TITLE, text_color=TEXT_MAIN).pack(anchor="w")
         ctk.CTkLabel(header, text="지우고 싶은 글씨나 로고 위를 마우스로 칠하면 주변 배경에 맞춰 자연스럽게 복원합니다.", font=FONT_DEFAULT, text_color=TEXT_SUB).pack(anchor="w", pady=(2, 0))
 
-        self.drop_card = ctk.CTkFrame(self, height=130, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR, cursor="hand2")
+        self.drop_card = ctk.CTkFrame(self, height=130, corner_radius=12, fg_color=BG_CARD, border_width=2, border_color=BORDER_COLOR, cursor="hand2")
         self.drop_card.pack(fill="x", pady=(20, 16))
         self.drop_card.pack_propagate(False)
 
@@ -2417,7 +2457,7 @@ class TabEraser(ctk.CTkFrame):
         lbl1.pack(pady=(22, 10))
         
         btn_open = ctk.CTkButton(
-            self.drop_card, text="이미지 불러오기 및 작업 공간 열기", height=36, width=240, corner_radius=8,
+            self.drop_card, text="✨ 이미지 불러오기 및 작업 공간 열기", height=36, width=280, corner_radius=8,
             font=FONT_DEFAULT_BOLD, fg_color=ACCENT, hover_color=ACCENT_HOVER, command=self.open_workspace
         )
         btn_open.pack()
@@ -2476,17 +2516,17 @@ class TabSettings(ctk.CTkFrame):
 
         ctk.CTkButton(
             dir_box, text="폴더 선택", width=85, height=34, corner_radius=6,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER, font=FONT_DEFAULT_BOLD,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER, font=FONT_DEFAULT_BOLD, text_color="#FFFFFF",
             command=self.choose_custom_out_dir
         ).pack(side="left", padx=(0, 6))
 
         ctk.CTkButton(
             dir_box, text="기본값", width=65, height=34, corner_radius=6,
-            fg_color=BG_INNER, text_color=TEXT_MAIN, hover_color=BORDER_COLOR, font=FONT_DEFAULT,
+            fg_color="transparent", text_color=TEXT_MAIN, hover_color=BG_INNER, font=FONT_DEFAULT, border_width=1, border_color=BORDER_COLOR,
             command=self.clear_custom_out_dir
         ).pack(side="left")
 
-        # 2. 화면 테마 모드 (독립형 버튼으로 완벽 교체 및 실시간 테마 적용)
+        # 2. 화면 테마 모드
         row2 = ctk.CTkFrame(card, fg_color="transparent")
         row2.pack(fill="x", padx=22, pady=12)
         ctk.CTkLabel(row2, text="2. 화면 테마 모드", font=FONT_CARD_TITLE, text_color=TEXT_MAIN).pack(side="left")
@@ -2528,7 +2568,6 @@ class TabSettings(ctk.CTkFrame):
         self.entry_suffix.pack(side="right")
         self.entry_suffix.bind("<KeyRelease>", self.on_change_suffix)
 
-        # 초기 테마 버튼 색상 세팅
         self.update_theme_buttons()
 
     def choose_custom_out_dir(self):
@@ -2554,10 +2593,10 @@ class TabSettings(ctk.CTkFrame):
         current = self.app.settings.get("theme", "dark")
         if current == "dark":
             self.btn_dark.configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER, border_width=0)
-            self.btn_light.configure(fg_color=BG_INNER, text_color=TEXT_SUB, hover_color=BORDER_COLOR, border_width=1, border_color=BORDER_COLOR)
+            self.btn_light.configure(fg_color="transparent", text_color=TEXT_MAIN, hover_color=BG_INNER, border_width=1, border_color=BORDER_COLOR)
         else:
             self.btn_light.configure(fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER, border_width=0)
-            self.btn_dark.configure(fg_color=BG_INNER, text_color=TEXT_SUB, hover_color=BORDER_COLOR, border_width=1, border_color=BORDER_COLOR)
+            self.btn_dark.configure(fg_color="transparent", text_color=TEXT_MAIN, hover_color=BG_INNER, border_width=1, border_color=BORDER_COLOR)
 
     def on_toggle_auto_open(self):
         self.app.settings["auto_open_folder"] = bool(self.sw_auto_open.get())
@@ -2704,8 +2743,8 @@ class UpPreviewWindow(ctk.CTkToplevel):
         
         btn_row = ctk.CTkFrame(top_bar, fg_color="transparent")
         btn_row.pack(side="right", padx=22, pady=10)
-        ctk.CTkButton(btn_row, text="전체 저장", width=100, height=32, corner_radius=6, font=FONT_DEFAULT_BOLD, fg_color=ACCENT, command=self.save_all_items).pack(side="right")
-        ctk.CTkButton(btn_row, text="개별 저장", width=88, height=32, corner_radius=6, font=FONT_DEFAULT_BOLD, fg_color=("#E2E8F0", "#262936"), text_color=TEXT_MAIN, command=self.save_current_item).pack(side="right", padx=8)
+        ctk.CTkButton(btn_row, text="전체 저장", width=100, height=32, corner_radius=6, font=FONT_DEFAULT_BOLD, fg_color=ACCENT, text_color="#FFFFFF", hover_color=ACCENT_HOVER, command=self.save_all_items).pack(side="right")
+        ctk.CTkButton(btn_row, text="개별 저장", width=88, height=32, corner_radius=6, font=FONT_DEFAULT_BOLD, fg_color=("#E2E8F0", "#262936"), hover_color=("#CBD5E1", "#323646"), text_color=TEXT_MAIN, command=self.save_current_item).pack(side="right", padx=8)
 
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.pack(fill="both", expand=True, padx=22, pady=18)
@@ -2713,17 +2752,17 @@ class UpPreviewWindow(ctk.CTkToplevel):
         zoom_bar = ctk.CTkFrame(body, fg_color="transparent")
         zoom_bar.pack(fill="x", pady=(0, 10))
         
-        ctk.CTkButton(zoom_bar, text="◀ 이전", width=60, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, command=self.prev_item).pack(side="left", padx=2)
+        ctk.CTkButton(zoom_bar, text="◀ 이전", width=60, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, hover_color=BG_INNER, command=self.prev_item).pack(side="left", padx=2)
         self.lbl_page = ctk.CTkLabel(zoom_bar, text="1 / 1", font=FONT_DEFAULT_BOLD, text_color=TEXT_MAIN, width=40)
         self.lbl_page.pack(side="left", padx=4)
-        ctk.CTkButton(zoom_bar, text="다음 ▶", width=60, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, command=self.next_item).pack(side="left", padx=(2, 16))
+        ctk.CTkButton(zoom_bar, text="다음 ▶", width=60, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, hover_color=BG_INNER, command=self.next_item).pack(side="left", padx=(2, 16))
         
         ctk.CTkLabel(zoom_bar, text="슬라이더: 화면 비교  |  Spacebar+드래그: 화면 이동", font=FONT_SMALL, text_color=TEXT_SUB).pack(side="left")
         
-        ctk.CTkButton(zoom_bar, text="1:1", width=44, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, command=lambda: self.canvas.zoom_1to1()).pack(side="right", padx=2)
-        ctk.CTkButton(zoom_bar, text="맞춤", width=44, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, command=lambda: self.canvas.fit_to_screen()).pack(side="right", padx=2)
-        ctk.CTkButton(zoom_bar, text="-", width=36, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, command=lambda: self.canvas.zoom_out()).pack(side="right", padx=2)
-        ctk.CTkButton(zoom_bar, text="+", width=36, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, command=lambda: self.canvas.zoom_in()).pack(side="right", padx=(16, 2))
+        ctk.CTkButton(zoom_bar, text="1:1", width=44, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, hover_color=BG_INNER, command=lambda: self.canvas.zoom_1to1()).pack(side="right", padx=2)
+        ctk.CTkButton(zoom_bar, text="맞춤", width=44, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, hover_color=BG_INNER, command=lambda: self.canvas.fit_to_screen()).pack(side="right", padx=2)
+        ctk.CTkButton(zoom_bar, text="-", width=36, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, hover_color=BG_INNER, command=lambda: self.canvas.zoom_out()).pack(side="right", padx=2)
+        ctk.CTkButton(zoom_bar, text="+", width=36, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, font=FONT_SMALL_BOLD, text_color=TEXT_MAIN, hover_color=BG_INNER, command=lambda: self.canvas.zoom_in()).pack(side="right", padx=(16, 2))
         
         self.btn_view_orig = ctk.CTkButton(zoom_bar, text="원본", width=50, height=28, corner_radius=6, fg_color="transparent", border_width=1, border_color=BORDER_COLOR, text_color=TEXT_MAIN, hover_color=BG_INNER, font=FONT_SMALL_BOLD, command=lambda: self.on_view_change("toggle_orig"))
         self.btn_view_orig.pack(side="right", padx=2)
@@ -2799,14 +2838,17 @@ class TabUpscale(ctk.CTkFrame):
         ctk.CTkLabel(header, text="이미지 업스케일링", font=FONT_MAIN_TITLE, text_color=TEXT_MAIN).pack(anchor="w")
         ctk.CTkLabel(header, text="저해상도 이미지의 깨진 픽셀과 노이즈를 제거하고 최대 4배까지 선명하게 확대합니다.", font=FONT_DEFAULT, text_color=TEXT_SUB).pack(anchor="w", pady=(2, 0))
 
-        self.drop_card = ctk.CTkFrame(self, height=130, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR, cursor="hand2")
+        self.drop_card = ctk.CTkFrame(self, height=130, corner_radius=12, fg_color=BG_CARD, border_width=2, border_color=BORDER_COLOR, cursor="hand2")
         self.drop_card.pack(fill="x", pady=(0, 16))
         self.drop_card.pack_propagate(False)
 
-        lbl1 = ctk.CTkLabel(self.drop_card, text="+  화질을 높일 이미지 파일 추가하기 (클릭 또는 드래그 앤 드롭)", font=FONT_CARD_TITLE, text_color=TEXT_MAIN)
+        lbl1 = ctk.CTkLabel(self.drop_card, text="+ 작업할 이미지 파일 추가하기 (클릭 또는 드래그 앤 드롭)", font=FONT_CARD_TITLE, text_color=TEXT_MAIN)
         lbl1.pack(pady=(22, 4))
         lbl2 = ctk.CTkLabel(self.drop_card, text="여러 폴더의 이미지를 나눠서 추가할 수 있으며, 아래 배지를 누르면 개별 취소할 수 있습니다", font=FONT_DEFAULT, text_color=TEXT_SUB)
         lbl2.pack()
+
+        for widget in [self.drop_card, lbl1, lbl2]:
+            widget.bind("<Button-1>", lambda e: self.select_up_files())
 
         self.file_badge = ctk.CTkButton(
             self.drop_card, text=" 현재 선택된 파일: 0개 ", height=28, corner_radius=6,
@@ -2815,9 +2857,6 @@ class TabUpscale(ctk.CTkFrame):
         )
         self.file_badge.pack(pady=(10, 0))
 
-        for widget in [self.drop_card, lbl1, lbl2]:
-            widget.bind("<Button-1>", lambda e: self.select_up_files())
-
         up_grid = ctk.CTkFrame(self, fg_color="transparent")
         up_grid.pack(fill="x", pady=(0, 14))
         up_grid.grid_columnconfigure((0, 1), weight=1)
@@ -2825,7 +2864,7 @@ class TabUpscale(ctk.CTkFrame):
         up_left = ctk.CTkFrame(up_grid, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR)
         up_left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
 
-        ctk.CTkLabel(up_left, text="AI UPSCALE ENGINE", font=("맑은 고딕", 10, "bold"), text_color=ACCENT).pack(anchor="w", padx=18, pady=(16, 2))
+        ctk.CTkLabel(up_left, text="AI UPSCALE ENGINE", font=("Pretendard Variable", 10, "bold"), text_color=ACCENT).pack(anchor="w", padx=18, pady=(16, 2))
         ctk.CTkLabel(up_left, text="AI 처리 모델", font=FONT_CARD_TITLE, text_color=TEXT_MAIN).pack(anchor="w", padx=18, pady=(0, 12))
 
         engine_row = ctk.CTkFrame(up_left, fg_color="transparent")
@@ -2863,7 +2902,7 @@ class TabUpscale(ctk.CTkFrame):
         up_right = ctk.CTkFrame(up_grid, corner_radius=12, fg_color=BG_CARD, border_width=1, border_color=BORDER_COLOR)
         up_right.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
 
-        ctk.CTkLabel(up_right, text="RESOLUTION & DETAIL", font=("맑은 고딕", 10, "bold"), text_color=ACCENT).pack(anchor="w", padx=18, pady=(16, 2))
+        ctk.CTkLabel(up_right, text="RESOLUTION & DETAIL", font=("Pretendard Variable", 10, "bold"), text_color=ACCENT).pack(anchor="w", padx=18, pady=(16, 2))
         ctk.CTkLabel(up_right, text="해상도 확대", font=FONT_CARD_TITLE, text_color=TEXT_MAIN).pack(anchor="w", padx=18, pady=(0, 12))
 
         scale_row = ctk.CTkFrame(up_right, fg_color="transparent")
@@ -2906,15 +2945,15 @@ class TabUpscale(ctk.CTkFrame):
 
         self.up_preview_btn = ctk.CTkButton(
             self.bottom_action_box, text="결과 미리보기", height=48, corner_radius=10,
-            font=FONT_CARD_TITLE, fg_color=BG_CARD, hover_color=BORDER_COLOR,
-            text_color=TEXT_MAIN, border_width=1, border_color=BORDER_COLOR,
+            font=FONT_CARD_TITLE, fg_color="transparent", hover_color=BG_INNER,
+            text_color=TEXT_MAIN, border_width=2, border_color=BORDER_COLOR,
             command=lambda: self.start_upscale(True)
         )
         self.up_preview_btn.grid(row=0, column=0, sticky="ew", padx=(0, 8))
 
         self.up_run_btn = ctk.CTkButton(
-            self.bottom_action_box, text="업스케일링 시작", height=48, corner_radius=10,
-            font=FONT_CARD_TITLE, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            self.bottom_action_box, text="✨ 업스케일링 시작", height=48, corner_radius=10,
+            font=FONT_MAIN_TITLE, fg_color=ACCENT, hover_color=ACCENT_HOVER,
             text_color="#FFFFFF", command=lambda: self.start_upscale(False)
         )
         self.up_run_btn.grid(row=0, column=1, sticky="ew", padx=(8, 0))
@@ -3058,9 +3097,11 @@ class TabUpscale(ctk.CTkFrame):
         if not self.up_file_list:
             return self.show_file_card_warning("! 먼저 작업할 이미지 파일을 선택해주세요")
             
-        self.app.engine_dot.configure(text="● 업스케일 연산 중...", text_color=WARN_COLOR)
         file_names = [os.path.basename(p) for p in self.up_file_list]
         self.app.floating_prog.start(file_names)
+        
+        self.up_run_btn.configure(text="✨ 업스케일 연산 진행 중...", state="disabled")
+        self.up_preview_btn.configure(state="disabled")
 
         def worker():
             preview_items = []
@@ -3089,12 +3130,16 @@ class TabUpscale(ctk.CTkFrame):
                 self.after(0, lambda: self.on_complete(preview_items, last_dir))
             except Exception as e:
                 self.after(0, lambda err=str(e): messagebox.showerror("오류", err))
+                self.after(0, lambda: self.up_run_btn.configure(text="✨ 업스케일링 시작", state="normal"))
+                self.after(0, lambda: self.up_preview_btn.configure(state="normal"))
                 
         threading.Thread(target=worker, daemon=True).start()
 
     def on_complete(self, preview_items, last_dir):
         self.app.floating_prog.stop()
-        self.app.engine_dot.configure(text="● Modular Engine Ready", text_color=SUCCESS_COLOR)
+        self.up_run_btn.configure(text="✨ 업스케일링 시작", state="normal")
+        self.up_preview_btn.configure(state="normal")
+        
         if preview_items:
             UpPreviewWindow(self, preview_items)
         else:
