@@ -272,7 +272,29 @@ class InteractiveImageCanvas(tk.Canvas):
         self.bind("<KeyPress-space>", self.on_space_press)
         self.bind("<KeyRelease-space>", self.on_space_release)
         
+        # 신규 추가: 브러쉬 크기 조절용 휠 바인딩 및 컨트롤 릴리스 버그 방지
+        self.bind("<Control-MouseWheel>", self.on_ctrl_mousewheel)
+        self.bind("<Control-ButtonRelease-1>", self.on_b1_release)
+        
         self.set_pan_mode(False)
+
+    def on_ctrl_mousewheel(self, event):
+        # 그리기 모드가 아니거나 이동(Pan) 모드일 때는 작동하지 않음
+        if not self.draw_mode or self.pan_mode: 
+            return
+            
+        # 휠 굴림 방향에 따라 증감 수치 설정 (스크롤 한 번에 4씩 조절)
+        delta = 4 if event.delta > 0 else -4
+        self.brush_size += delta
+        
+        # 범위 제한 (잔상 버그 방지를 위해 최소 2, 최대 300으로 넉넉하게 고정)
+        if self.brush_size < 2:
+            self.brush_size = 2
+        elif self.brush_size > 300:
+            self.brush_size = 300
+            
+        # [핵심] 휠 이벤트의 좌표가 아닌 마지막으로 인식된 캔버스 내부 마우스 좌표 사용
+        self.draw_brush_cursor(self.last_mouse_x, self.last_mouse_y)
 
     def clear_lines(self):
         self.lines.clear()
